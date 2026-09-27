@@ -56,7 +56,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
     };
 
     this.ws.onclose = (event) => {
-      this.callbacks.onClose(event.code);
+      this.callbacks.onClose(event.code, event.reason || '');
     };
   }
 

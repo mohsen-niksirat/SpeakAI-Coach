@@ -8,7 +8,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
 import { CoachRole, ProviderSettings } from './types';
 import { loadProviderSettings, saveProviderSettings } from './services/providers';
-import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
+import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle, Info } from 'lucide-react';
 
 export default function App() {
   const [settings, setSettings] = useState<ProviderSettings>(loadProviderSettings);
@@ -26,6 +26,8 @@ export default function App() {
     isConnected,
     error,
     clearError,
+    notice,
+    clearNotice,
     isTalking,
     micVolume,
     aiVolume,
@@ -135,6 +137,17 @@ export default function App() {
               >
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 {error}
+              </button>
+            )}
+
+            {notice && !error && (
+              <button
+                onClick={clearNotice}
+                className="mt-3 flex items-center gap-2 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition max-w-md text-left"
+                title="Click to dismiss"
+              >
+                <Info className="w-3.5 h-3.5 shrink-0" />
+                {notice}
               </button>
             )}
 

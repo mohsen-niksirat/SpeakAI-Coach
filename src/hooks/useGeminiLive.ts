@@ -22,7 +22,7 @@ import {
 } from '../types';
 
 const VOCAB_STORAGE_KEY = 'speakai_vocab';
-const CONNECT_TIMEOUT_MS = 15000;
+const CONNECT_TIMEOUT_MS = 20000; // includes Gemini's REST preflight (up to 8s)
 
 function loadPersistedVocab(): VocabCard[] {
   try {
@@ -61,6 +61,7 @@ function createVoiceClient(
 export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (next: ProviderSettings) => void) {
   const [phase, setPhase] = useState<ConnectionPhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState(false);
   const [micVolume, setMicVolume] = useState(0);
   const [aiVolume, setAiVolume] = useState(0);
@@ -173,6 +174,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     const reportProvider = findProvider(settingsRef.current, settingsRef.current.reportProviderId);
 
     setError(null);
+    setNotice(null);
     setReport(null);
     setReportStatus('idle');
     setFeedbackLogs([]);
@@ -299,12 +301,15 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         onError: (err) => {
           fail(err);
         },
-        onClose: (code) => {
+        onClose: (code, reason) => {
           fail(
             code === 1000 || code === 1005
               ? 'Connection closed by server.'
-              : `Connection failed (code ${code}). Check your API key and base URL.`,
+              : `Connection failed (code ${code}${reason ? `: ${reason.slice(0, 200)}` : ''}). Check your API key and base URL.`,
           );
+        },
+        onNotice: (message) => {
+          setNotice(message);
         },
       };
 
@@ -369,6 +374,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
 
   const clearError = useCallback(() => setError(null), []);
 
+  const clearNotice = useCallback(() => setNotice(null), []);
+
   const clearVocab = useCallback(() => setVocabCards([]), []);
 
   useEffect(() => {
@@ -391,6 +398,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     isConnected: phase === 'connected',
     error,
     clearError,
+    notice,
+    clearNotice,
     isTalking,
     micVolume,
     aiVolume,

@@ -9,7 +9,8 @@ export interface VoiceClientCallbacks {
   onVocabDiscovered: (card: VocabCard) => void;
   onFeedbackGiven: (feedback: FeedbackLog) => void;
   onError: (err: string) => void;
-  onClose: (code: number) => void;
+  onClose: (code: number, reason?: string) => void;
+  onNotice?: (message: string) => void;
 }
 
 export interface VoiceClient {
