@@ -1,23 +1,25 @@
 import React from 'react';
 import { FeedbackLog } from '../types';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useT } from '../i18n/store';
 
 interface Props {
   logs: FeedbackLog[];
 }
 
 export const LiveFeedbackPanel: React.FC<Props> = ({ logs }) => {
+  const t = useT();
   return (
     <div className="bg-surface/80 backdrop-blur border border-slate-800 rounded-2xl p-4 flex flex-col h-full max-h-[350px]">
       <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-        Live Corrections ({logs.length})
+        {t('feedback.title', { n: logs.length })}
       </h3>
 
       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
         {logs.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-slate-500 italic">
-            Speak naturally. Any grammar or phrasing flaws will be gently noted here.
+          <div className="h-full flex items-center justify-center text-xs text-slate-500 italic text-center px-2">
+            {t('feedback.empty')}
           </div>
         ) : (
           logs.map((item) => (

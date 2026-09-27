@@ -1,6 +1,7 @@
 import React from 'react';
 import { VocabCard } from '../types';
 import { BookMarked, Download, Trash2 } from 'lucide-react';
+import { useT } from '../i18n/store';
 
 interface Props {
   cards: VocabCard[];
@@ -22,6 +23,7 @@ function csvEscape(value: string): string {
 }
 
 export const VocabCardList: React.FC<Props> = ({ cards, onClear }) => {
+  const t = useT();
   const dateStamp = new Date().toISOString().slice(0, 10);
 
   const exportToCSV = () => {
@@ -56,23 +58,23 @@ export const VocabCardList: React.FC<Props> = ({ cards, onClear }) => {
       <div className="flex items-center justify-between mb-3 gap-2">
         <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2 shrink-0">
           <BookMarked className="w-4 h-4 text-indigo-400" />
-          Captured Vocab ({cards.length})
+          {t('vocab.title', { n: cards.length })}
         </h3>
         {cards.length > 0 && (
           <div className="flex items-center gap-1.5">
-            <button onClick={exportToCSV} className={buttonClass} title="Export CSV">
+            <button onClick={exportToCSV} className={buttonClass} title={t('vocab.exportCsv')}>
               <Download className="w-3 h-3 inline mr-0.5" />CSV
             </button>
-            <button onClick={exportToJSON} className={buttonClass} title="Export JSON">
+            <button onClick={exportToJSON} className={buttonClass} title={t('vocab.exportJson')}>
               JSON
             </button>
-            <button onClick={exportToAnki} className={buttonClass} title="Export Anki text">
+            <button onClick={exportToAnki} className={buttonClass} title={t('vocab.exportAnki')}>
               Anki
             </button>
             <button
               onClick={onClear}
               className="text-[11px] bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 px-2 py-1 rounded-lg border border-rose-500/30 transition"
-              title="Clear deck"
+              title={t('vocab.clear')}
             >
               <Trash2 className="w-3 h-3" />
             </button>
@@ -83,7 +85,7 @@ export const VocabCardList: React.FC<Props> = ({ cards, onClear }) => {
       <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
         {cards.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-slate-500 italic text-center px-2">
-            Advanced words discovered during chat will appear here and stay saved on this device.
+            {t('vocab.empty')}
           </div>
         ) : (
           cards.map((card) => (

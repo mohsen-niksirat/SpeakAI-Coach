@@ -1,6 +1,5 @@
-node_modules/
+﻿node_modules/
 dist/
 .freebuff/
 *.local
 .DS_Store
-screenshot*.jpg

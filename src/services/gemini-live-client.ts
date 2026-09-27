@@ -1,5 +1,6 @@
 import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
+import { t } from '../i18n/store';
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
 const MAX_MODEL_HOPS = 5;
@@ -62,6 +63,7 @@ export class GeminiLiveClient implements VoiceClient {
   private modelIdx = 0;
   private modelHops = 0;
   private stallRetries = 0;
+  private socketOpened = false;
   private socketTimer: number | null = null;
   private candidates: string[] = [];
   private setupDone = false;
@@ -102,15 +104,13 @@ export class GeminiLiveClient implements VoiceClient {
     try {
       res = await fetch(`${base}/v1beta/models?key=${this.apiKey}&pageSize=1000`, { signal: ctrl.signal });
     } catch {
-      throw new Error(
-        `Cannot reach ${base} — the network or VPN is blocking this endpoint. Try another VPN.`,
-      );
+      throw new Error(t('err.cannotReach', { base }));
     } finally {
       clearTimeout(timer);
     }
 
     if (!res.ok) {
-      let message = `HTTP ${res.status} from ${base}`;
+      let message = t('err.http', { status: res.status, base });
       try {
         const body = await res.json();
         message = body?.error?.message || message;
@@ -118,7 +118,7 @@ export class GeminiLiveClient implements VoiceClient {
         // keep the status fallback
       }
       if (res.status === 403 || /api key/i.test(message)) {
-        throw new Error(`API key rejected: ${message}`);
+        throw new Error(t('err.keyRejected', { msg: message }));
       }
       throw new Error(message);
     }
@@ -174,8 +174,10 @@ export class GeminiLiveClient implements VoiceClient {
     const url = `${base}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
 
     this.ws = new WebSocket(url);
+    this.socketOpened = false;
 
     this.ws.onopen = () => {
+      this.socketOpened = true;
       this.sendSetup();
     };
 
@@ -185,7 +187,7 @@ export class GeminiLiveClient implements VoiceClient {
 
     this.ws.onerror = () => {
       if (!this.disposed && !this.setupDone) {
-        this.callbacks.onError('WebSocket connection error. Check your API key, base URL and network.');
+        this.callbacks.onError(t('err.wsGeneric'));
       }
     };
 
@@ -205,7 +207,10 @@ export class GeminiLiveClient implements VoiceClient {
           this.effectiveModel = this.candidates[this.modelIdx];
           this.stage = 0;
           this.notices.push(
-            `Model "${this.candidates[this.modelIdx - 1]}" is unavailable — using "${this.effectiveModel}" instead. You can update it in Settings.`,
+            t('notice.modelFallback', {
+              old: this.candidates[this.modelIdx - 1],
+              new: this.effectiveModel,
+            }),
           );
           this.restartSocket();
           return;
@@ -230,9 +235,11 @@ export class GeminiLiveClient implements VoiceClient {
         this.restartSocket();
         return;
       }
-      this.callbacks.onError(
-        'WebSocket setup stalled — the VPN appears to be stalling Google\'s live connection. Try a different VPN server.',
-      );
+      if (!this.socketOpened) {
+        this.callbacks.onError(t('err.stallHandshake'));
+      } else {
+        this.callbacks.onError(t('err.stallSetup'));
+      }
     }, SOCKET_WATCHDOG_MS);
   }
 
@@ -304,10 +311,10 @@ export class GeminiLiveClient implements VoiceClient {
         if (this.stage > 0) {
           this.notices.push(
             this.stage === 1
-              ? 'without live transcription.'
+              ? t('notice.stage1')
               : this.stage === 2
-                ? 'without live transcription and tools.'
-                : 'in basic mode (no transcription, tools or voice profile).',
+                ? t('notice.stage2')
+                : t('notice.stage3'),
           );
         }
         const combined = this.notices.join(' ');

@@ -1,8 +1,14 @@
 # SpeakAI Coach
 
+**English** | [فارسی](README.fa.md)
+
 Real-time AI speaking coach for IELTS and everyday English practice. Talk with an AI coach over low-latency WebSocket audio, get live grammar corrections and vocabulary capture, and receive an AI-evaluated band report at the end of every session.
 
 Works with **Google Gemini Live**, **OpenAI Realtime**, and any compatible gateway — you bring your own API keys, they never leave your browser.
+
+![SpeakAI Coach settings](screenshot%2001.jpg)
+
+*Configuration: pick a coach persona, separate voice and report providers, and manage multiple API keys per provider.*
 
 ## Features
 
@@ -15,6 +21,7 @@ Works with **Google Gemini Live**, **OpenAI Realtime**, and any compatible gatew
 - **Live transcript** — the full conversation is transcribed in real time.
 - **Session report** — after each session a text model evaluates the transcript against the four IELTS criteria (Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation) and returns an overall band with strengths and focus areas.
 - **Leitner-ready export** — vocabulary deck exports to CSV, JSON, or Anki text; the deck persists in your browser between sessions.
+- **English & Persian UI** — switch languages from the header; Persian layout is fully RTL.
 - **Client-first & BYOK** — no backend, no accounts; all keys live in browser localStorage.
 
 ## Try it

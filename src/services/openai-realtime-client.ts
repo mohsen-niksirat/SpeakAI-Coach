@@ -1,5 +1,6 @@
 import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
+import { t } from '../i18n/store';
 
 interface FunctionCallItem {
   call_id?: string;
@@ -39,7 +40,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
         'openai-beta.realtime-v1',
       ]);
     } catch (err) {
-      this.callbacks.onError('Could not open WebSocket to the Realtime endpoint.');
+      this.callbacks.onError(t('err.realtimeOpen'));
       return;
     }
 
@@ -52,7 +53,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
     };
 
     this.ws.onerror = () => {
-      this.callbacks.onError('WebSocket connection error. Check your API key, base URL and network.');
+      this.callbacks.onError(t('err.wsGeneric'));
     };
 
     this.ws.onclose = (event) => {

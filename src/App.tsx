@@ -8,9 +8,11 @@ import { SettingsModal } from './components/SettingsModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
 import { CoachRole, ProviderSettings } from './types';
 import { loadProviderSettings, saveProviderSettings } from './services/providers';
-import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle, Info } from 'lucide-react';
+import { useT, getLang, setLang } from './i18n/store';
+import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle, Info, Globe } from 'lucide-react';
 
 export default function App() {
+  const t = useT();
   const [settings, setSettings] = useState<ProviderSettings>(loadProviderSettings);
   const [role, setRole] = useState<CoachRole>('ielts_examiner');
   const [voice, setVoice] = useState('Aoede');
@@ -65,8 +67,8 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-base font-bold text-white tracking-tight">SpeakAI Coach</h1>
-            <p className="text-[11px] text-slate-400 capitalize">
-              Role: {role.replace('_', ' ')} • Voice: {voice}
+            <p className="text-[11px] text-slate-400">
+              {t('header.roleLine', { role: t(`roles.${role}`), voice })}
             </p>
           </div>
         </div>
@@ -78,6 +80,14 @@ export default function App() {
               {minutes}:{seconds}
             </div>
           )}
+          <button
+            onClick={() => setLang(getLang() === 'en' ? 'fa' : 'en')}
+            className="flex items-center gap-1.5 p-2.5 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition text-xs font-semibold"
+            title="Language / زبان"
+          >
+            <Globe className="w-4 h-4" />
+            {getLang() === 'en' ? 'فا' : 'EN'}
+          </button>
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="p-2.5 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition"
@@ -108,7 +118,7 @@ export default function App() {
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
                 >
                   <Mic className="w-4 h-4" />
-                  Start Voice Practice
+                  {t('actions.start')}
                 </button>
               ) : phase === 'connecting' ? (
                 <button
@@ -116,7 +126,7 @@ export default function App() {
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600/50 text-white/70 font-semibold text-sm shadow-xl cursor-wait"
                 >
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Connecting…
+                  {t('actions.connecting')}
                 </button>
               ) : (
                 <button
@@ -124,7 +134,7 @@ export default function App() {
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm shadow-xl shadow-rose-600/30 transition hover:scale-105 active:scale-95"
                 >
                   <PhoneOff className="w-4 h-4" />
-                  End Call & View Report
+                  {t('actions.end')}
                 </button>
               )}
             </div>
@@ -132,8 +142,8 @@ export default function App() {
             {error && (
               <button
                 onClick={clearError}
-                className="mt-3 flex items-center gap-2 text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/30 px-3 py-1.5 rounded-lg hover:bg-rose-500/20 transition max-w-md text-left"
-                title="Click to dismiss"
+                className="mt-3 flex items-center gap-2 text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/30 px-3 py-1.5 rounded-lg hover:bg-rose-500/20 transition max-w-md text-start"
+                title={t('dismiss')}
               >
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 {error}
@@ -143,8 +153,8 @@ export default function App() {
             {notice && !error && (
               <button
                 onClick={clearNotice}
-                className="mt-3 flex items-center gap-2 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition max-w-md text-left"
-                title="Click to dismiss"
+                className="mt-3 flex items-center gap-2 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition max-w-md text-start"
+                title={t('dismiss')}
               >
                 <Info className="w-3.5 h-3.5 shrink-0" />
                 {notice}
@@ -152,9 +162,7 @@ export default function App() {
             )}
 
             <p className="text-[11px] text-slate-500 mt-3 text-center">
-              {isConnected
-                ? 'Interrupt freely anytime — SpeakAI automatically yields.'
-                : 'Low latency • Gemini Live & OpenAI Realtime • BYOK multi-provider'}
+              {isConnected ? t('caption.live') : t('caption.idle')}
             </p>
           </div>
 
@@ -171,7 +179,7 @@ export default function App() {
       </main>
 
       <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-800/80">
-        SpeakAI Coach • Client-First Architecture • Ready for Telegram Mini Apps
+        {t('footer')}
       </footer>
 
       <SettingsModal

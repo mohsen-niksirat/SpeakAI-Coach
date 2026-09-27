@@ -7,6 +7,7 @@ import {
   handleToolCall,
 } from './voice-client';
 import { normalizeBaseUrl } from './providers';
+import { t } from '../i18n/store';
 
 interface ChatToolCall {
   id: string;
@@ -59,13 +60,11 @@ export class BrowserChatVoiceClient implements VoiceClient {
   connect() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      this.callbacks.onError(
-        'This browser does not support speech recognition for chat providers. Use Chrome or Edge.',
-      );
+      this.callbacks.onError(t('err.noSr'));
       return;
     }
     if (!('speechSynthesis' in window)) {
-      this.callbacks.onError('This browser does not support speech synthesis.');
+      this.callbacks.onError(t('err.noTts'));
       return;
     }
 
@@ -74,7 +73,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
     try {
       this.recognition = new SR();
     } catch {
-      this.callbacks.onError('Could not start speech recognition.');
+      this.callbacks.onError(t('err.srStart'));
       return;
     }
     this.recognition.lang = 'en-US';
@@ -97,7 +96,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
       const code = event?.error;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
         this.stopped = true;
-        this.callbacks.onError('Microphone permission denied. Allow the microphone and restart.');
+        this.callbacks.onError(t('err.micDenied'));
       }
       // 'no-speech' / 'aborted' are routine; onend will restart
     };
@@ -195,14 +194,12 @@ export class BrowserChatVoiceClient implements VoiceClient {
         signal: ctrl.signal,
       });
     } catch {
-      throw new Error('The provider did not respond in 30s — check your network or VPN.');
+      throw new Error(t('err.chatTimeout'));
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) {
-      throw new Error(
-        `Provider error (${res.status}) — the key may be invalid, rate-limited, or the model unavailable.`,
-      );
+      throw new Error(t('err.providerError', { status: res.status }));
     }
     return res.json();
   }
@@ -212,7 +209,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
       if (this.stopped) return;
       const data = await this.chat();
       const message = data?.choices?.[0]?.message;
-      if (!message) throw new Error('Provider returned an empty response.');
+      if (!message) throw new Error(t('err.emptyResponse'));
 
       if (message.tool_calls?.length) {
         this.messages.push(message);

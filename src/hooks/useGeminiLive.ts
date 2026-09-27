@@ -7,6 +7,7 @@ import { AudioPlayer } from '../audio/audio-player';
 import { generateSessionReport, heuristicBand } from '../services/session-report';
 import { VoiceClient, VoiceClientCallbacks } from '../services/voice-client';
 import { findProvider, activeKey, rotateKey } from '../services/providers';
+import { t } from '../i18n/store';
 import {
   CoachRole,
   VoiceName,
@@ -168,7 +169,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
 
     const voiceProvider = findProvider(settingsRef.current, settingsRef.current.voiceProviderId);
     if (!voiceProvider || voiceProvider.keys.length === 0) {
-      setError('Add a voice provider with at least one API key in Settings first.');
+      setError(t('err.noVoiceProvider'));
       return;
     }
     const reportProvider = findProvider(settingsRef.current, settingsRef.current.reportProviderId);
@@ -195,7 +196,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       };
     } catch (err) {
       console.error('Failed to create audio player:', err);
-      abortWithError('Audio playback is not available in this browser.');
+      abortWithError(t('err.audioPlayer'));
       return;
     }
 
@@ -234,7 +235,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             persistProviderKey(next);
             attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 250);
           } else {
-            const suffix = provider.keys.length > 1 ? ` (tried all ${provider.keys.length} keys)` : '';
+            const suffix = provider.keys.length > 1 ? t('err.triedAll', { n: provider.keys.length }) : '';
             abortWithError(`${message}${suffix}`);
           }
           return;
@@ -248,7 +249,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           setPhase('connecting');
           attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 400);
         } else {
-          abortWithError(`Connection lost: ${message}. Restart the session to try another key.`);
+          abortWithError(t('err.connLost', { msg: message }));
         }
       };
 
@@ -265,7 +266,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             captureStartedRef.current = true;
             beginCapture(provider).catch((err) => {
               console.error('Failed to initialize audio devices:', err);
-              abortWithError('Could not access the microphone. Check browser permissions.');
+              abortWithError(t('err.mic'));
             });
           }
         },
@@ -304,8 +305,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         onClose: (code, reason) => {
           fail(
             code === 1000 || code === 1005
-              ? 'Connection closed by server.'
-              : `Connection failed (code ${code}${reason ? `: ${reason.slice(0, 200)}` : ''}). Check your API key and base URL.`,
+              ? t('err.connClosed')
+              : t('err.connFailed', { code, reason: reason ? `: ${reason.slice(0, 200)}` : '' }),
           );
         },
         onNotice: (message) => {
@@ -318,7 +319,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       clientRef.current.connect();
 
       connectTimerRef.current = window.setTimeout(() => {
-        fail('Connection timed out. The endpoint did not respond in 25s — check your VPN connection.');
+        fail(t('err.connTimeout'));
       }, CONNECT_TIMEOUT_MS);
     };
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useT } from '../i18n/store';
 
 interface VisualizerOrbProps {
   isAiTalking: boolean;
@@ -13,6 +14,7 @@ export const VisualizerOrb: React.FC<VisualizerOrbProps> = ({
   micVolume,
   isConnected,
 }) => {
+  const t = useT();
   const currentVolume = isAiTalking ? aiVolume : micVolume;
   const scale = isConnected ? 1 + currentVolume * 0.45 : 1;
   const glow = isAiTalking
@@ -45,7 +47,7 @@ export const VisualizerOrb: React.FC<VisualizerOrbProps> = ({
         }}
       >
         <span className="text-white text-xs uppercase tracking-widest font-semibold drop-shadow">
-          {!isConnected ? 'Ready' : isAiTalking ? 'Speaking' : 'Listening'}
+          {!isConnected ? t('orb.ready') : isAiTalking ? t('orb.speaking') : t('orb.listening')}
         </span>
       </div>
     </div>

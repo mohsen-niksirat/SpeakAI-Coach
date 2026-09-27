@@ -12,13 +12,13 @@ import {
   FileText,
 } from 'lucide-react';
 import {
-  KIND_LABELS,
   KIND_DEFAULTS,
   isVoiceCapable,
   voicesForKind,
   newProviderId,
   normalizeBaseUrl,
 } from '../services/providers';
+import { useT } from '../i18n/store';
 
 interface Props {
   isOpen: boolean;
@@ -72,6 +72,7 @@ export const SettingsModal: React.FC<Props> = ({
   voice,
   onSelectVoice,
 }) => {
+  const t = useT();
   const [draft, setDraft] = useState<ProviderDraft | null>(null);
 
   if (!isOpen) return null;
@@ -151,19 +152,19 @@ export const SettingsModal: React.FC<Props> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-lg font-bold text-white mb-5 flex items-center gap-2">Settings</h2>
+        <h2 className="text-lg font-bold text-white mb-5 flex items-center gap-2">{t('settings.title')}</h2>
 
         <div className="space-y-5 text-xs">
           <div>
             <label className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
               <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-              Coach Persona
+              {t('settings.persona')}
             </label>
             <select value={role} onChange={(e) => onSelectRole(e.target.value as CoachRole)} className={selectClass}>
-              <option value="ielts_examiner">IELTS Speaking Examiner (Strict & Analytical)</option>
-              <option value="friendly_chat">Friendly Native Speaker (Casual & Supportive)</option>
-              <option value="job_interview">Tech / Corporate Interviewer</option>
-              <option value="debate_partner">Debate Sparring Partner</option>
+              <option value="ielts_examiner">{t('settings.role.ielts')}</option>
+              <option value="friendly_chat">{t('settings.role.friendly')}</option>
+              <option value="job_interview">{t('settings.role.job')}</option>
+              <option value="debate_partner">{t('settings.role.debate')}</option>
             </select>
           </div>
 
@@ -171,14 +172,14 @@ export const SettingsModal: React.FC<Props> = ({
             <div>
               <label className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
                 <Mic className="w-3.5 h-3.5 text-indigo-400" />
-                Voice Provider
+                {t('settings.voiceProvider')}
               </label>
               <select
                 value={settings.voiceProviderId ?? ''}
                 onChange={(e) => applySettings({ voiceProviderId: e.target.value || null })}
                 className={selectClass}
               >
-                <option value="">— none —</option>
+                <option value="">{t('settings.none')}</option>
                 {voiceProviders.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -186,21 +187,21 @@ export const SettingsModal: React.FC<Props> = ({
                 ))}
               </select>
               {voiceProviders.length === 0 && (
-                <p className="text-[10px] text-amber-400 mt-1">Add a voice-capable provider below first.</p>
+                <p className="text-[10px] text-amber-400 mt-1">{t('settings.noVoiceProvider')}</p>
               )}
             </div>
 
             <div>
               <label className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
                 <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                Report Provider
+                {t('settings.reportProvider')}
               </label>
               <select
                 value={settings.reportProviderId ?? ''}
                 onChange={(e) => applySettings({ reportProviderId: e.target.value || null })}
                 className={selectClass}
               >
-                <option value="">— none —</option>
+                <option value="">{t('settings.none')}</option>
                 {settings.providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -213,7 +214,8 @@ export const SettingsModal: React.FC<Props> = ({
           <div>
             <label className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
               <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-              Voice Profile{isBrowserVoice ? ' (browser)' : ''}
+              {t('settings.voiceProfile')}
+              {isBrowserVoice ? t('settings.voiceProfileBrowser') : ''}
             </label>
             <select
               value={currentVoice}
@@ -221,8 +223,8 @@ export const SettingsModal: React.FC<Props> = ({
               disabled={voiceOptions.length === 0 && !isBrowserVoice}
               className={selectClass}
             >
-              {isBrowserVoice && <option value="">Browser default voice</option>}
-              {!activeVoice && <option value="">Add a voice provider first</option>}
+              {isBrowserVoice && <option value="">{t('settings.browserVoice')}</option>}
+              {!activeVoice && <option value="">{t('settings.addVoiceFirst')}</option>}
               {voiceOptions.map((v) => (
                 <option key={v} value={v}>
                   {v}
@@ -230,10 +232,7 @@ export const SettingsModal: React.FC<Props> = ({
               ))}
             </select>
             {isBrowserVoice && (
-              <p className="text-[10px] text-slate-500 mt-1">
-                Chat providers speak through your browser (speech recognition + TTS) — Chrome or Edge
-                recommended. Slightly slower than realtime voice.
-              </p>
+              <p className="text-[10px] text-slate-500 mt-1">{t('settings.browserHint')}</p>
             )}
           </div>
 
@@ -241,23 +240,20 @@ export const SettingsModal: React.FC<Props> = ({
             <div className="flex items-center justify-between mb-2">
               <label className="flex items-center gap-1.5 text-slate-300 font-medium">
                 <Server className="w-3.5 h-3.5 text-indigo-400" />
-                Providers ({settings.providers.length})
+                {t('settings.providers', { n: settings.providers.length })}
               </label>
               {!draft && (
                 <button
                   onClick={() => setDraft(emptyDraft())}
                   className="flex items-center gap-1 text-[11px] bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 px-2.5 py-1 rounded-lg border border-indigo-500/30 transition"
                 >
-                  <Plus className="w-3 h-3" /> Add
+                  <Plus className="w-3 h-3" /> {t('settings.add')}
                 </button>
               )}
             </div>
 
             {settings.providers.length === 0 && !draft && (
-              <p className="text-[11px] text-slate-500 italic">
-                No providers yet. Add Google, OpenAI, OpenRouter or any compatible gateway — your keys stay in this
-                browser only.
-              </p>
+              <p className="text-[11px] text-slate-500 italic">{t('settings.empty')}</p>
             )}
 
             <div className="space-y-2">
@@ -273,21 +269,23 @@ export const SettingsModal: React.FC<Props> = ({
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-slate-200 truncate">{p.name}</div>
                     <div className="text-[10px] text-slate-500 truncate">
-                      {KIND_LABELS[p.kind]} • {p.keys.length} key{p.keys.length > 1 ? 's' : ''} • {p.model}
+                      {t(`kind.${p.kind}`)} •{' '}
+                      {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
+                      {p.model}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => setDraft(draftFrom(p))}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                      title="Edit"
+                      title={t('settings.edit')}
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleDelete(p.id)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
-                      title="Delete"
+                      title={t('settings.delete')}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -300,16 +298,16 @@ export const SettingsModal: React.FC<Props> = ({
               <div className="mt-3 bg-slate-950/70 border border-indigo-500/30 rounded-xl p-3 space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Name</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.name')}</label>
                     <input
                       value={draft.name}
                       onChange={(e) => patchDraft({ name: e.target.value })}
-                      placeholder="My OpenRouter"
+                      placeholder={t('settings.addName')}
                       className={selectClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Type</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.type')}</label>
                     <select
                       value={draft.kind}
                       onChange={(e) => {
@@ -329,9 +327,9 @@ export const SettingsModal: React.FC<Props> = ({
                       }}
                       className={selectClass}
                     >
-                      {Object.entries(KIND_LABELS).map(([value, label]) => (
+                      {(['gemini-live', 'openai-realtime', 'openai-chat'] as ProviderKind[]).map((value) => (
                         <option key={value} value={value}>
-                          {label}
+                          {t(`kind.${value}`)}
                         </option>
                       ))}
                     </select>
@@ -339,7 +337,7 @@ export const SettingsModal: React.FC<Props> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">Base URL</label>
+                  <label className="block text-[10px] text-slate-400 mb-1">{t('settings.baseUrl')}</label>
                   <input
                     value={draft.baseUrl}
                     onChange={(e) => patchDraft({ baseUrl: e.target.value })}
@@ -350,7 +348,7 @@ export const SettingsModal: React.FC<Props> = ({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Voice / Chat Model</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.model')}</label>
                     <input
                       value={draft.model}
                       onChange={(e) => patchDraft({ model: e.target.value })}
@@ -359,7 +357,7 @@ export const SettingsModal: React.FC<Props> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Report Model (optional)</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.reportModel')}</label>
                     <input
                       value={draft.reportModel}
                       onChange={(e) => patchDraft({ reportModel: e.target.value })}
@@ -370,9 +368,7 @@ export const SettingsModal: React.FC<Props> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">
-                    API Keys — one per line (rotation uses them in order on failures)
-                  </label>
+                  <label className="block text-[10px] text-slate-400 mb-1">{t('settings.keysLabel')}</label>
                   <textarea
                     value={draft.keysText}
                     onChange={(e) => patchDraft({ keysText: e.target.value })}
@@ -387,13 +383,13 @@ export const SettingsModal: React.FC<Props> = ({
                     onClick={handleSaveDraft}
                     className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-xl transition text-xs"
                   >
-                    Save Provider
+                    {t('settings.save')}
                   </button>
                   <button
                     onClick={() => setDraft(null)}
                     className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl transition text-xs"
                   >
-                    Cancel
+                    {t('settings.cancel')}
                   </button>
                 </div>
               </div>
@@ -406,7 +402,7 @@ export const SettingsModal: React.FC<Props> = ({
             onClick={onClose}
             className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 rounded-xl transition text-xs"
           >
-            Done
+            {t('settings.done')}
           </button>
         </div>
       </div>
