@@ -3,3 +3,4 @@ dist/
 .freebuff/
 *.local
 .DS_Store
+screenshot*.jpg
