@@ -7,9 +7,9 @@ export const GEMINI_VOICES = ['Aoede', 'Kore', 'Puck', 'Charon', 'Fenrir'];
 export const OPENAI_VOICES = ['alloy', 'coral', 'shimmer', 'sage', 'verse', 'ash', 'ballad', 'echo'];
 
 export const KIND_LABELS: Record<ProviderKind, string> = {
-  'gemini-live': 'Gemini Live (voice + text)',
-  'openai-realtime': 'OpenAI Realtime (voice + text)',
-  'openai-chat': 'OpenAI-compatible (text only)',
+  'gemini-live': 'Gemini Live (realtime voice)',
+  'openai-realtime': 'OpenAI Realtime (realtime voice)',
+  'openai-chat': 'OpenAI-compatible (chat + browser voice)',
 };
 
 export const KIND_DEFAULTS: Record<ProviderKind, { baseUrl: string; model: string; reportModel: string }> = {
@@ -31,10 +31,12 @@ export const KIND_DEFAULTS: Record<ProviderKind, { baseUrl: string; model: strin
 };
 
 export function isVoiceCapable(kind: ProviderKind): boolean {
-  return kind === 'gemini-live' || kind === 'openai-realtime';
+  // chat-only providers speak through the browser STT/TTS pipeline
+  return kind === 'gemini-live' || kind === 'openai-realtime' || kind === 'openai-chat';
 }
 
 export function voicesForKind(kind: ProviderKind): string[] {
+  if (kind === 'openai-chat') return []; // browser default voice
   return kind === 'gemini-live' ? GEMINI_VOICES : OPENAI_VOICES;
 }
 

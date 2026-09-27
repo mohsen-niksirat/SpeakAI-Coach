@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveClient } from '../services/gemini-live-client';
 import { OpenAIRealtimeClient } from '../services/openai-realtime-client';
+import { BrowserChatVoiceClient } from '../services/browser-chat-voice-client';
 import { AudioRecorder } from '../audio/audio-recorder';
 import { AudioPlayer } from '../audio/audio-player';
 import { generateSessionReport, heuristicBand } from '../services/session-report';
@@ -50,6 +51,9 @@ function createVoiceClient(
 ): VoiceClient {
   if (provider.kind === 'openai-realtime') {
     return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice);
+  }
+  if (provider.kind === 'openai-chat') {
+    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice);
   }
   return new GeminiLiveClient(callbacks, provider, apiKey, role, voice);
 }
@@ -269,6 +273,9 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         onInterrupted: () => {
           playerRef.current?.stopAll();
           setIsTalking(false);
+        },
+        onTalkingChange: (talking) => {
+          setIsTalking(talking);
         },
         onTranscript: (speaker, text, finished) => {
           const entries = transcriptRef.current;

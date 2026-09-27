@@ -79,6 +79,7 @@ export const SettingsModal: React.FC<Props> = ({
   const voiceProviders = settings.providers.filter((p) => isVoiceCapable(p.kind));
   const activeVoice = settings.providers.find((p) => p.id === settings.voiceProviderId) ?? null;
   const voiceOptions = activeVoice ? voicesForKind(activeVoice.kind) : [];
+  const isBrowserVoice = activeVoice?.kind === 'openai-chat';
   const currentVoice = voiceOptions.includes(voice) ? voice : voiceOptions[0] ?? '';
 
   const patchDraft = (patch: Partial<ProviderDraft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -212,21 +213,28 @@ export const SettingsModal: React.FC<Props> = ({
           <div>
             <label className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
               <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-              Voice Profile
+              Voice Profile{isBrowserVoice ? ' (browser)' : ''}
             </label>
             <select
               value={currentVoice}
               onChange={(e) => onSelectVoice(e.target.value)}
-              disabled={voiceOptions.length === 0}
+              disabled={voiceOptions.length === 0 && !isBrowserVoice}
               className={selectClass}
             >
-              {voiceOptions.length === 0 && <option value="">Add a voice provider first</option>}
+              {isBrowserVoice && <option value="">Browser default voice</option>}
+              {!activeVoice && <option value="">Add a voice provider first</option>}
               {voiceOptions.map((v) => (
                 <option key={v} value={v}>
                   {v}
                 </option>
               ))}
             </select>
+            {isBrowserVoice && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Chat providers speak through your browser (speech recognition + TTS) — Chrome or Edge
+                recommended. Slightly slower than realtime voice.
+              </p>
+            )}
           </div>
 
           <div className="border-t border-slate-800 pt-4">

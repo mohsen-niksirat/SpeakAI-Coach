@@ -4,6 +4,7 @@ export interface VoiceClientCallbacks {
   onSetupComplete: () => void;
   onAudioData: (base64Pcm24k: string) => void;
   onInterrupted: () => void;
+  onTalkingChange?: (talking: boolean) => void;
   onTranscript: (role: TranscriptRole, text: string, finished: boolean) => void;
   onVocabDiscovered: (card: VocabCard) => void;
   onFeedbackGiven: (feedback: FeedbackLog) => void;

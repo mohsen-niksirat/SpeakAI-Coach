@@ -39,13 +39,14 @@ Open **Settings**, add a provider, paste your API key(s), pick a persona and voi
 
 | Type | Voice chat | Session report | Example base URL |
 |---|---|---|---|
-| Gemini Live | yes | Gemini `generateContent` | `https://generativelanguage.googleapis.com` |
-| OpenAI Realtime | yes | OpenAI `chat/completions` | `https://api.openai.com/v1` |
-| OpenAI-compatible | no | `chat/completions` | `https://openrouter.ai/api/v1` |
+| Gemini Live | realtime | Gemini `generateContent` | `https://generativelanguage.googleapis.com` |
+| OpenAI Realtime | realtime | OpenAI `chat/completions` | `https://api.openai.com/v1` |
+| OpenAI-compatible | browser voice (STT → chat → TTS) | `chat/completions` | `https://openrouter.ai/api/v1` |
 
 Notes:
 
-- Keys are sent per protocol: Gemini uses `?key=`, Realtime uses OpenAI's browser subprotocol auth plus `?api_key=` for gateways.
+- **Browser voice** makes any text-only provider (OpenRouter, VyceAI, DeepSeek relays, …) usable for speaking practice: your speech is recognized by the browser (Web Speech API), the reply comes from the provider's chat model, and the browser speaks it back. Needs Chrome/Edge and is a bit slower than realtime providers.
+- Keys are sent per protocol: Gemini uses `?key=`, Realtime uses OpenAI's browser subprotocol auth plus `?api_key=` for gateways, chat uses `Authorization: Bearer`.
 - `Report model` optionally uses a different (cheaper) text model for the end-of-session evaluation.
 - Rotation always starts from the active key and advances only on failures, so a healthy key is never skipped.
 
