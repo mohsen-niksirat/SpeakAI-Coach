@@ -22,7 +22,7 @@ import {
 } from '../types';
 
 const VOCAB_STORAGE_KEY = 'speakai_vocab';
-const CONNECT_TIMEOUT_MS = 20000; // includes Gemini's REST preflight (up to 8s)
+const CONNECT_TIMEOUT_MS = 25000; // safety net: includes Gemini's REST preflight and model fallback hops
 
 function loadPersistedVocab(): VocabCard[] {
   try {
@@ -318,7 +318,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       clientRef.current.connect();
 
       connectTimerRef.current = window.setTimeout(() => {
-        fail('Connection timed out.');
+        fail('Connection timed out. The endpoint did not respond in 25s — check your VPN connection.');
       }, CONNECT_TIMEOUT_MS);
     };
 

@@ -175,20 +175,30 @@ export class BrowserChatVoiceClient implements VoiceClient {
 
   private async chat(): Promise<any> {
     const base = normalizeBaseUrl(this.provider.baseUrl) || 'https://api.openai.com/v1';
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.provider.model,
-        temperature: 0.6,
-        messages: this.messages,
-        tools: TOOL_DECLARATIONS.map((t) => ({ type: 'function', function: t })),
-        tool_choice: 'auto',
-      }),
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    let res: Response;
+    try {
+      res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.provider.model,
+          temperature: 0.6,
+          messages: this.messages,
+          tools: TOOL_DECLARATIONS.map((t) => ({ type: 'function', function: t })),
+          tool_choice: 'auto',
+        }),
+        signal: ctrl.signal,
+      });
+    } catch {
+      throw new Error('The provider did not respond in 30s — check your network or VPN.');
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       throw new Error(
         `Provider error (${res.status}) — the key may be invalid, rate-limited, or the model unavailable.`,

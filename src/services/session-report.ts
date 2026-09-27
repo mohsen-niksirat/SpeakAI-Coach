@@ -89,17 +89,27 @@ function isRetryable(err: unknown): boolean {
 
 async function callGemini(baseUrl: string, model: string, apiKey: string, prompt: string): Promise<string> {
   const base = normalizeBaseUrl(baseUrl) || 'https://generativelanguage.googleapis.com';
-  const res = await fetch(`${base}/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-      },
-    }),
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+      }),
+      signal: ctrl.signal,
+    });
+  } catch {
+    throw new Error('Report request timed out after 45s.');
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new HttpStatusError(res.status);
   const data = await res.json();
   return (
@@ -111,21 +121,31 @@ async function callGemini(baseUrl: string, model: string, apiKey: string, prompt
 
 async function callOpenAIChat(baseUrl: string, model: string, apiKey: string, prompt: string): Promise<string> {
   const base = normalizeBaseUrl(baseUrl) || 'https://api.openai.com/v1';
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: 'You are an IELTS Speaking examiner. Always answer with valid JSON only.' },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'You are an IELTS Speaking examiner. Always answer with valid JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
+  } catch {
+    throw new Error('Report request timed out after 45s.');
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new HttpStatusError(res.status);
   const data = await res.json();
   return data?.choices?.[0]?.message?.content || '';

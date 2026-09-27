@@ -2,6 +2,8 @@ import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
+const MAX_MODEL_HOPS = 5;
+const SOCKET_WATCHDOG_MS = 7000;
 
 // Used when the models list cannot be fetched; newest first.
 const HARDCODED_LIVE_MODELS = [
@@ -58,6 +60,9 @@ export class GeminiLiveClient implements VoiceClient {
 
   private stage = 0;
   private modelIdx = 0;
+  private modelHops = 0;
+  private stallRetries = 0;
+  private socketTimer: number | null = null;
   private candidates: string[] = [];
   private setupDone = false;
   private effectiveModel = '';
@@ -139,13 +144,27 @@ export class GeminiLiveClient implements VoiceClient {
     }
   }
 
+  private clearSocketTimer() {
+    if (this.socketTimer !== null) {
+      clearTimeout(this.socketTimer);
+      this.socketTimer = null;
+    }
+  }
+
   private restartSocket() {
+    this.clearSocketTimer();
     if (this.ws) {
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      this.ws.onmessage = null;
-      this.ws.onopen = null;
+      const old = this.ws;
       this.ws = null;
+      old.onclose = null;
+      old.onerror = null;
+      old.onmessage = null;
+      old.onopen = null;
+      try {
+        old.close();
+      } catch {
+        // already closed
+      }
     }
     this.openSocket();
   }
@@ -171,11 +190,17 @@ export class GeminiLiveClient implements VoiceClient {
     };
 
     this.ws.onclose = (event) => {
+      this.clearSocketTimer();
       if (this.disposed) return;
       if (!this.setupDone && event.code === 1008) {
         const reason = event.reason || '';
         // Model rejected → jump to the next candidate (fresh full setup).
-        if (MODEL_ERROR_RE.test(reason) && this.modelIdx + 1 < this.candidates.length) {
+        if (
+          MODEL_ERROR_RE.test(reason) &&
+          this.modelIdx + 1 < this.candidates.length &&
+          this.modelHops < MAX_MODEL_HOPS
+        ) {
+          this.modelHops += 1;
           this.modelIdx += 1;
           this.effectiveModel = this.candidates[this.modelIdx];
           this.stage = 0;
@@ -194,6 +219,21 @@ export class GeminiLiveClient implements VoiceClient {
       }
       this.callbacks.onClose(event.code, event.reason || '');
     };
+
+    // If the socket opens but setupComplete never arrives, the VPN is
+    // likely stalling the live connection — fail fast with a clear cause.
+    this.clearSocketTimer();
+    this.socketTimer = window.setTimeout(() => {
+      if (this.disposed || this.setupDone) return;
+      if (this.stallRetries < 1) {
+        this.stallRetries += 1;
+        this.restartSocket();
+        return;
+      }
+      this.callbacks.onError(
+        'WebSocket setup stalled — the VPN appears to be stalling Google\'s live connection. Try a different VPN server.',
+      );
+    }, SOCKET_WATCHDOG_MS);
   }
 
   private sendSetup() {
@@ -259,6 +299,7 @@ export class GeminiLiveClient implements VoiceClient {
       const msg = JSON.parse(data);
 
       if (msg.setupComplete) {
+        this.clearSocketTimer();
         this.setupDone = true;
         if (this.stage > 0) {
           this.notices.push(
@@ -335,6 +376,7 @@ export class GeminiLiveClient implements VoiceClient {
 
   disconnect() {
     this.disposed = true;
+    this.clearSocketTimer();
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
