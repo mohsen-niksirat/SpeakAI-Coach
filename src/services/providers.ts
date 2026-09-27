@@ -15,7 +15,7 @@ export const KIND_LABELS: Record<ProviderKind, string> = {
 export const KIND_DEFAULTS: Record<ProviderKind, { baseUrl: string; model: string; reportModel: string }> = {
   'gemini-live': {
     baseUrl: 'https://generativelanguage.googleapis.com',
-    model: 'gemini-live-2.5-flash-preview',
+    model: 'gemini-3.1-flash-live-preview',
     reportModel: 'gemini-flash-latest',
   },
   'openai-realtime': {

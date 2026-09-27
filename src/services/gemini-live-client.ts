@@ -1,7 +1,16 @@
 import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
 
-const MAX_SETUP_STAGE = 2; // 0: full, 1: no transcription, 2: minimal
+const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
+
+// Used when the models list cannot be fetched; newest first.
+const HARDCODED_LIVE_MODELS = [
+  'gemini-3.1-flash-live-preview',
+  'gemini-2.5-flash-native-audio-latest',
+  'gemini-live-2.5-flash',
+  'gemini-live-2.5-flash-preview',
+  'gemini-2.0-flash-live-001',
+];
 
 function geminiType(value: string): string {
   return value === 'object' ? 'OBJECT' : value === 'string' ? 'STRING' : value;
@@ -37,6 +46,8 @@ function stripModelsPrefix(model: string): string {
   return model.replace(/^models\//, '');
 }
 
+const MODEL_ERROR_RE = /not found|not supported for bidi|unknown model|does not exist/i;
+
 export class GeminiLiveClient implements VoiceClient {
   private ws: WebSocket | null = null;
   private callbacks: VoiceClientCallbacks;
@@ -46,6 +57,8 @@ export class GeminiLiveClient implements VoiceClient {
   private voice: VoiceName;
 
   private stage = 0;
+  private modelIdx = 0;
+  private candidates: string[] = [];
   private setupDone = false;
   private effectiveModel = '';
   private notices: string[] = [];
@@ -70,67 +83,71 @@ export class GeminiLiveClient implements VoiceClient {
       });
   }
 
-  // Classifies failures before opening the socket: network block, invalid
-  // key, or missing model — each with a distinct, actionable message.
+  // One models.list call both validates network/key and builds the queue of
+  // models we can fall back to when the configured one is rejected by WS.
   private async preflight(): Promise<void> {
     const base = (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
-    const model = stripModelsPrefix(this.provider.model);
-    this.effectiveModel = model;
+    const configured = stripModelsPrefix(this.provider.model);
+    this.candidates = [configured];
+    this.effectiveModel = configured;
 
-    const fetchWithTimeout = async (url: string): Promise<Response> => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
-      try {
-        return await fetch(url, { signal: ctrl.signal });
-      } catch {
-        throw new Error(
-          `Cannot reach ${base} — the network or VPN is blocking this endpoint. Try another VPN.`,
-        );
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
-    const res = await fetchWithTimeout(`${base}/v1beta/models/${encodeURIComponent(model)}?key=${this.apiKey}`);
-
-    if (res.status === 200) return;
-
-    if (res.status === 404) {
-      try {
-        const listRes = await fetchWithTimeout(`${base}/v1beta/models?key=${this.apiKey}`);
-        if (listRes.ok) {
-          const data = await listRes.json();
-          const live: string[] = (data.models ?? [])
-            .map((m: { name?: string }) => String(m.name ?? ''))
-            .filter((n: string) => /live|native-audio/i.test(n));
-          if (live.length > 0) {
-            const preferred = live.find((n) => /gemini-live/i.test(n)) ?? live[0];
-            const found = stripModelsPrefix(preferred);
-            if (found !== model) {
-              this.effectiveModel = found;
-              this.notices.push(
-                `Model "${model}" is not available for this key — using "${found}" instead. You can update it in Settings.`,
-              );
-            }
-          }
-        }
-      } catch {
-        // discovery is best-effort; the WebSocket attempt is the source of truth
-      }
-      return;
-    }
-
-    let message = `HTTP ${res.status} from ${base}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    let res: Response;
     try {
-      const body = await res.json();
-      message = body?.error?.message || message;
+      res = await fetch(`${base}/v1beta/models?key=${this.apiKey}&pageSize=1000`, { signal: ctrl.signal });
     } catch {
-      // keep the status fallback
+      throw new Error(
+        `Cannot reach ${base} — the network or VPN is blocking this endpoint. Try another VPN.`,
+      );
+    } finally {
+      clearTimeout(timer);
     }
-    if (res.status === 403 || /api key/i.test(message)) {
-      throw new Error(`API key rejected: ${message}`);
+
+    if (!res.ok) {
+      let message = `HTTP ${res.status} from ${base}`;
+      try {
+        const body = await res.json();
+        message = body?.error?.message || message;
+      } catch {
+        // keep the status fallback
+      }
+      if (res.status === 403 || /api key/i.test(message)) {
+        throw new Error(`API key rejected: ${message}`);
+      }
+      throw new Error(message);
     }
-    throw new Error(message);
+
+    try {
+      const data = await res.json();
+      const entries: Array<{ name: string; methods: string[] }> = (data.models ?? []).map(
+        (m: { name?: string; supportedGenerationMethods?: string[] }) => ({
+          name: stripModelsPrefix(String(m.name ?? '')),
+          methods: m.supportedGenerationMethods ?? [],
+        }),
+      );
+      const bidi = entries.filter((m) => m.methods.includes('bidiGenerateContent')).map((m) => m.name);
+      const liveNamed = entries.filter((m) => /live|native-audio/i.test(m.name)).map((m) => m.name);
+      const pool = bidi.length > 0 ? bidi : liveNamed;
+      for (const name of [...pool, ...HARDCODED_LIVE_MODELS]) {
+        if (name && !this.candidates.includes(name)) this.candidates.push(name);
+      }
+    } catch {
+      for (const name of HARDCODED_LIVE_MODELS) {
+        if (!this.candidates.includes(name)) this.candidates.push(name);
+      }
+    }
+  }
+
+  private restartSocket() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
+      this.ws = null;
+    }
+    this.openSocket();
   }
 
   private openSocket() {
@@ -155,18 +172,25 @@ export class GeminiLiveClient implements VoiceClient {
 
     this.ws.onclose = (event) => {
       if (this.disposed) return;
-      // 1008 = the server rejected our setup message. Retry with fewer
-      // optional fields to isolate the offending one instead of failing.
-      if (!this.setupDone && event.code === 1008 && this.stage < MAX_SETUP_STAGE) {
-        this.stage += 1;
-        if (this.ws) {
-          this.ws.onclose = null;
-          this.ws.onerror = null;
-          this.ws.onmessage = null;
-          this.ws = null;
+      if (!this.setupDone && event.code === 1008) {
+        const reason = event.reason || '';
+        // Model rejected → jump to the next candidate (fresh full setup).
+        if (MODEL_ERROR_RE.test(reason) && this.modelIdx + 1 < this.candidates.length) {
+          this.modelIdx += 1;
+          this.effectiveModel = this.candidates[this.modelIdx];
+          this.stage = 0;
+          this.notices.push(
+            `Model "${this.candidates[this.modelIdx - 1]}" is unavailable — using "${this.effectiveModel}" instead. You can update it in Settings.`,
+          );
+          this.restartSocket();
+          return;
         }
-        this.openSocket();
-        return;
+        // Setup field rejected → strip more optional fields.
+        if (this.stage < MAX_SETUP_STAGE) {
+          this.stage += 1;
+          this.restartSocket();
+          return;
+        }
       }
       this.callbacks.onClose(event.code, event.reason || '');
     };
@@ -177,24 +201,30 @@ export class GeminiLiveClient implements VoiceClient {
 
     const setup: Record<string, unknown> = {
       model: `models/${this.effectiveModel}`,
-      generationConfig: {
-        responseModalities: ['audio'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: this.voice,
-            },
-          },
-        },
-      },
       systemInstruction: {
         parts: [{ text: getRolePrompt(this.role) }],
       },
     };
 
+    if (this.stage <= 2) {
+      setup.generationConfig = {
+        responseModalities: ['audio'],
+        ...(this.stage <= 1
+          ? {
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: this.voice,
+                  },
+                },
+              },
+            }
+          : {}),
+      };
+    }
     if (this.stage <= 1) {
-      (setup as Record<string, unknown>).inputAudioTranscription = { languageCodes: ['en'] };
-      (setup as Record<string, unknown>).outputAudioTranscription = { languageCodes: ['en'] };
+      setup.inputAudioTranscription = { languageCodes: ['en'] };
+      setup.outputAudioTranscription = { languageCodes: ['en'] };
     }
     if (this.stage === 0) {
       setup.tools = [
@@ -233,11 +263,14 @@ export class GeminiLiveClient implements VoiceClient {
         if (this.stage > 0) {
           this.notices.push(
             this.stage === 1
-              ? 'Connected without live transcription — this endpoint rejected the transcription fields.'
-              : 'Connected in basic mode — transcription and live tools were rejected by this endpoint.',
+              ? 'without live transcription.'
+              : this.stage === 2
+                ? 'without live transcription and tools.'
+                : 'in basic mode (no transcription, tools or voice profile).',
           );
         }
-        for (const n of this.notices) this.callbacks.onNotice?.(n);
+        const combined = this.notices.join(' ');
+        if (combined) this.callbacks.onNotice?.(combined);
         this.notices = [];
         this.callbacks.onSetupComplete();
         return;
