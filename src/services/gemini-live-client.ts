@@ -1,6 +1,7 @@
 import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
 import { t } from '../i18n/store';
+import { ProviderError, asProviderError, classifyCloseCode, classifyHttpStatus } from './errors';
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
 const MAX_MODEL_HOPS = 5;
@@ -86,7 +87,7 @@ export class GeminiLiveClient implements VoiceClient {
       })
       .catch((err) => {
         if (this.disposed) return;
-        this.callbacks.onError(err instanceof Error ? err.message : String(err));
+        this.callbacks.onError(asProviderError(err, t('err.unknown')));
       });
   }
 
@@ -104,7 +105,7 @@ export class GeminiLiveClient implements VoiceClient {
     try {
       res = await fetch(`${base}/v1beta/models?key=${this.apiKey}&pageSize=1000`, { signal: ctrl.signal });
     } catch {
-      throw new Error(t('err.cannotReach', { base }));
+      throw new ProviderError('network', t('err.cannotReach', { base }));
     } finally {
       clearTimeout(timer);
     }
@@ -117,10 +118,11 @@ export class GeminiLiveClient implements VoiceClient {
       } catch {
         // keep the status fallback
       }
-      if (res.status === 403 || /api key/i.test(message)) {
-        throw new Error(t('err.keyRejected', { msg: message }));
+      const kind = classifyHttpStatus(res.status, message);
+      if (kind === 'invalid_key') {
+        throw new ProviderError('invalid_key', t('err.keyRejected', { msg: message }));
       }
-      throw new Error(message);
+      throw new ProviderError(kind, message);
     }
 
     try {
@@ -187,7 +189,7 @@ export class GeminiLiveClient implements VoiceClient {
 
     this.ws.onerror = () => {
       if (!this.disposed && !this.setupDone) {
-        this.callbacks.onError(t('err.wsGeneric'));
+        this.callbacks.onError(new ProviderError('network', t('err.wsGeneric')));
       }
     };
 
@@ -222,7 +224,7 @@ export class GeminiLiveClient implements VoiceClient {
           return;
         }
       }
-      this.callbacks.onClose(event.code, event.reason || '');
+      this.callbacks.onClose(event.code, event.reason || '', classifyCloseCode(event.code, event.reason || ''));
     };
 
     // If the socket opens but setupComplete never arrives, the VPN is
@@ -236,9 +238,9 @@ export class GeminiLiveClient implements VoiceClient {
         return;
       }
       if (!this.socketOpened) {
-        this.callbacks.onError(t('err.stallHandshake'));
+        this.callbacks.onError(new ProviderError('network', t('err.stallHandshake')));
       } else {
-        this.callbacks.onError(t('err.stallSetup'));
+        this.callbacks.onError(new ProviderError('network', t('err.stallSetup')));
       }
     }, SOCKET_WATCHDOG_MS);
   }

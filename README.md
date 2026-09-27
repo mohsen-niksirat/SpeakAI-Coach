@@ -57,6 +57,14 @@ Notes:
 - `Report model` optionally uses a different (cheaper) text model for the end-of-session evaluation.
 - Rotation always starts from the active key and advances only on failures, so a healthy key is never skipped.
 
+## Disclaimer
+
+**This is an AI-based practice estimate, not an official IELTS score.** The band report is generated from the session transcript for practice purposes only; IELTS results are issued solely by official test centers. Pronunciation is inferred from the transcript alone and has limited accuracy — a real pronunciation assessment requires audio-level analysis (stress, intonation, phonemes).
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE) — see [NOTICE](NOTICE).
+
 ## Stack
 
 Vite · React 18 · TypeScript · Tailwind CSS · Gemini Live API · OpenAI Realtime API

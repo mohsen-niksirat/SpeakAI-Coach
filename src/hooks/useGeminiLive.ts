@@ -8,6 +8,8 @@ import { generateSessionReport, heuristicBand } from '../services/session-report
 import { VoiceClient, VoiceClientCallbacks } from '../services/voice-client';
 import { findProvider, activeKey, rotateKey } from '../services/providers';
 import { t } from '../i18n/store';
+import { ProviderError, ProviderErrorKind, isRotatable, shouldRotateOnReconnect } from '../services/errors';
+import { mergeTranscript } from '../utils/transcript';
 import {
   CoachRole,
   VoiceName,
@@ -33,10 +35,6 @@ function loadPersistedVocab(): VocabCard[] {
   } catch {
     return [];
   }
-}
-
-function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function inputRateFor(provider: Provider): number {
@@ -88,6 +86,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const feedbackLogsRef = useRef<FeedbackLog[]>([]);
   const reportProviderRef = useRef<Provider | null>(null);
   const reconnectCountRef = useRef(0);
+  const sessionSeqRef = useRef(0);
+  const attemptSeqRef = useRef(0);
   const settingsRef = useRef(settings);
 
   useEffect(() => {
@@ -187,6 +187,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     reportProviderRef.current = reportProvider;
     sessionActiveRef.current = true;
     reconnectCountRef.current = 0;
+    sessionSeqRef.current += 1;
+    attemptSeqRef.current += 1;
 
     try {
       playerRef.current = new AudioPlayer();
@@ -220,34 +222,55 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     const startAttempt = (provider: Provider, attemptsSoFar: number) => {
       if (!sessionActiveRef.current) return;
 
+      const attemptId = ++attemptSeqRef.current;
+      const stale = () => attemptId !== attemptSeqRef.current || !sessionActiveRef.current;
+
       let ready = false;
       let dead = false;
 
-      const fail = (message: string) => {
-        if (dead || !sessionActiveRef.current) return;
+      const fail = (messageOrErr: string | ProviderError) => {
+        if (dead || stale()) return;
         dead = true;
         clearConnectTimers();
         clientRef.current?.disconnect();
 
+        const err = typeof messageOrErr === 'string' ? null : messageOrErr;
+        const kind: ProviderErrorKind = err?.kind ?? 'unknown';
+        const message = err?.message ?? String(messageOrErr);
+
         if (!ready) {
-          if (attemptsSoFar + 1 < provider.keys.length) {
+          if (isRotatable(kind) && attemptsSoFar + 1 < provider.keys.length) {
             const next = rotateKey(provider);
             persistProviderKey(next);
             attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 250);
           } else {
-            const suffix = provider.keys.length > 1 ? t('err.triedAll', { n: provider.keys.length }) : '';
+            const suffix =
+              isRotatable(kind) && provider.keys.length > 1 && attemptsSoFar + 1 >= provider.keys.length
+                ? t('err.triedAll', { n: provider.keys.length })
+                : '';
             abortWithError(`${message}${suffix}`);
           }
           return;
         }
 
-        // mid-session connection loss: bounded auto-reconnect with key rotation
-        if (reconnectCountRef.current < provider.keys.length) {
+        // Mid-session loss: bounded reconnect. Network drops keep the same
+        // key (the failure said nothing about the key); key-class errors rotate.
+        const rotated = shouldRotateOnReconnect(kind);
+        const budget = Math.max(1, provider.keys.length);
+        const networkBudget = 1;
+        const withinBudget = rotated
+          ? reconnectCountRef.current < budget
+          : reconnectCountRef.current < networkBudget;
+
+        if (withinBudget) {
           reconnectCountRef.current += 1;
-          const next = rotateKey(provider);
-          persistProviderKey(next);
+          const next = rotated ? rotateKey(provider) : provider;
+          if (rotated) persistProviderKey(next);
           setPhase('connecting');
-          attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 400);
+          attemptTimerRef.current = window.setTimeout(
+            () => startAttempt(next, attemptsSoFar + (rotated ? 1 : 0)),
+            rotated ? 400 : 600,
+          );
         } else {
           abortWithError(t('err.connLost', { msg: message }));
         }
@@ -255,7 +278,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
 
       const callbacks: VoiceClientCallbacks = {
         onSetupComplete: () => {
-          if (dead || !sessionActiveRef.current) return;
+          if (dead || stale()) return;
           ready = true;
           if (connectTimerRef.current !== null) {
             clearTimeout(connectTimerRef.current);
@@ -271,45 +294,48 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           }
         },
         onAudioData: (base64) => {
+          if (stale()) return;
           playerRef.current?.playChunk(base64);
         },
         onInterrupted: () => {
+          if (stale()) return;
           playerRef.current?.stopAll();
           setIsTalking(false);
         },
         onTalkingChange: (talking) => {
+          if (stale()) return;
           setIsTalking(talking);
         },
         onTranscript: (speaker, text, finished) => {
-          const entries = transcriptRef.current;
-          const last = entries[entries.length - 1];
-          let next: TranscriptEntry[];
-          if (last && last.role === speaker && !last.done) {
-            next = [...entries.slice(0, -1), { ...last, text: last.text + text, done: finished }];
-          } else {
-            next = [...entries, { id: newId(), role: speaker, text, done: finished }];
-          }
+          if (stale()) return;
+          const next = mergeTranscript(transcriptRef.current, speaker, text, finished);
           transcriptRef.current = next;
           setTranscript(next);
         },
         onVocabDiscovered: (card) => {
+          if (stale()) return;
           setVocabCards((prev) => [card, ...prev]);
           setSessionVocabCount((n) => n + 1);
         },
         onFeedbackGiven: (feedback) => {
+          if (stale()) return;
           setFeedbackLogs((prev) => [feedback, ...prev]);
         },
         onError: (err) => {
-          fail(err);
+          fail(typeof err === 'string' ? new ProviderError('unknown', err) : err);
         },
-        onClose: (code, reason) => {
+        onClose: (code, reason, kind) => {
           fail(
-            code === 1000 || code === 1005
-              ? t('err.connClosed')
-              : t('err.connFailed', { code, reason: reason ? `: ${reason.slice(0, 200)}` : '' }),
+            new ProviderError(
+              kind ?? 'unknown',
+              code === 1000 || code === 1005
+                ? t('err.connClosed')
+                : t('err.connFailed', { code, reason: reason ? `: ${reason.slice(0, 200)}` : '' }),
+            ),
           );
         },
         onNotice: (message) => {
+          if (stale()) return;
           setNotice(message);
         },
       };
@@ -318,9 +344,11 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       clientRef.current = createVoiceClient(provider, activeKey(provider), role, voice, callbacks);
       clientRef.current.connect();
 
-      connectTimerRef.current = window.setTimeout(() => {
-        fail(t('err.connTimeout'));
-      }, CONNECT_TIMEOUT_MS);
+      if (!dead) {
+        connectTimerRef.current = window.setTimeout(() => {
+          fail(new ProviderError('network', t('err.connTimeout')));
+        }, CONNECT_TIMEOUT_MS);
+      }
     };
 
     startAttempt(voiceProvider, 0);
@@ -329,6 +357,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const endSession = useCallback(() => {
     if (!sessionActiveRef.current) return;
     sessionActiveRef.current = false;
+    attemptSeqRef.current += 1; // invalidate any in-flight client callbacks
 
     teardownRefs();
     setPhase('idle');
@@ -358,8 +387,10 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       setReport(null);
       setReportStatus('loading');
 
+      const reportSessionSeq = sessionSeqRef.current;
       generateSessionReport(reportProvider, transcriptText, corrections)
         .then((result) => {
+          if (reportSessionSeq !== sessionSeqRef.current) return; // a new session owns the UI now
           setReport(result.report);
           setReportStatus('ready');
           if (result.usedKeyIndex !== reportProvider.keyIndex) {
@@ -367,6 +398,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           }
         })
         .catch((err) => {
+          if (reportSessionSeq !== sessionSeqRef.current) return;
           console.error('Session report generation failed:', err);
           setReportStatus('failed');
         });

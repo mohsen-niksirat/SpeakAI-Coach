@@ -2,6 +2,7 @@ import React from 'react';
 import { VocabCard } from '../types';
 import { BookMarked, Download, Trash2 } from 'lucide-react';
 import { useT } from '../i18n/store';
+import { buildCsv, buildJson, buildAnki } from '../utils/exporters';
 
 interface Props {
   cards: VocabCard[];
@@ -18,36 +19,23 @@ function downloadFile(content: string, filename: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function csvEscape(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 export const VocabCardList: React.FC<Props> = ({ cards, onClear }) => {
   const t = useT();
   const dateStamp = new Date().toISOString().slice(0, 10);
 
   const exportToCSV = () => {
     if (cards.length === 0) return;
-    const header = 'Word,Phonetic,Definition,Context Sentence\n';
-    const rows = cards
-      .map((c) => [c.word, c.phonetic || '', c.definition, c.contextSentence].map(csvEscape).join(','))
-      .join('\n');
-    downloadFile(header + rows, `Leitner_Vocab_${dateStamp}.csv`, 'text/csv;charset=utf-8;');
+    downloadFile(buildCsv(cards), `Leitner_Vocab_${dateStamp}.csv`, 'text/csv;charset=utf-8;');
   };
 
   const exportToJSON = () => {
     if (cards.length === 0) return;
-    downloadFile(JSON.stringify(cards, null, 2), `Leitner_Vocab_${dateStamp}.json`, 'application/json');
+    downloadFile(buildJson(cards), `Leitner_Vocab_${dateStamp}.json`, 'application/json');
   };
 
   const exportToAnki = () => {
     if (cards.length === 0) return;
-    const rows = cards.map((c) => {
-      const phonetic = c.phonetic ? ` /${c.phonetic}/` : '';
-      const back = `${c.definition}<br><i>${c.contextSentence}</i>${phonetic}`;
-      return `${c.word}\t${back.replace(/\t/g, ' ')}`;
-    });
-    downloadFile(rows.join('\n'), `Leitner_Vocab_${dateStamp}.txt`, 'text/plain;charset=utf-8;');
+    downloadFile(buildAnki(cards), `Leitner_Vocab_${dateStamp}.txt`, 'text/plain;charset=utf-8;');
   };
 
   const buttonClass =

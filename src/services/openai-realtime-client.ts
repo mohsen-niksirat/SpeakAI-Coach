@@ -1,6 +1,7 @@
 import { CoachRole, VoiceName, Provider } from '../types';
 import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
 import { t } from '../i18n/store';
+import { ProviderError, classifyCloseCode, classifyHttpStatus, ProviderErrorKind } from './errors';
 
 interface FunctionCallItem {
   call_id?: string;
@@ -18,6 +19,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
 
   private sessionReady = false;
   private updateSent = false;
+  private disposed = false;
   private handledCallIds = new Set<string>();
   private pendingModelTranscript = '';
 
@@ -40,7 +42,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
         'openai-beta.realtime-v1',
       ]);
     } catch (err) {
-      this.callbacks.onError(t('err.realtimeOpen'));
+      this.callbacks.onError(new ProviderError('network', t('err.realtimeOpen')));
       return;
     }
 
@@ -53,11 +55,13 @@ export class OpenAIRealtimeClient implements VoiceClient {
     };
 
     this.ws.onerror = () => {
-      this.callbacks.onError(t('err.wsGeneric'));
+      if (this.disposed) return;
+      this.callbacks.onError(new ProviderError('network', t('err.wsGeneric')));
     };
 
     this.ws.onclose = (event) => {
-      this.callbacks.onClose(event.code, event.reason || '');
+      if (this.disposed) return;
+      this.callbacks.onClose(event.code, event.reason || '', classifyCloseCode(event.code, event.reason || ''));
     };
   }
 
@@ -139,23 +143,26 @@ export class OpenAIRealtimeClient implements VoiceClient {
 
   private handleServerError(payload: { code?: number | string; message?: string }) {
     const message = payload?.message || 'Realtime API error';
-    const code = payload?.code;
+    const rawCode = payload?.code;
+    const numericCode = typeof rawCode === 'number' ? rawCode : undefined;
+    const kind: ProviderErrorKind = numericCode
+      ? classifyHttpStatus(numericCode, message)
+      : classifyHttpStatus(0, `${rawCode ?? ''} ${message}`);
     const fatal =
       !this.sessionReady ||
-      code === 401 ||
-      code === 403 ||
-      code === 404 ||
-      code === 429 ||
-      /rate limit|model.*not.*found|invalid.*api.*key|unauthorized/i.test(message);
+      kind === 'invalid_key' ||
+      kind === 'rate_limited' ||
+      kind === 'model_unavailable';
 
     if (fatal) {
-      this.callbacks.onError(message);
+      this.callbacks.onError(new ProviderError(kind, message));
     } else {
       console.warn('Realtime API warning:', message);
     }
   }
 
   private handleServerMessage(data: string) {
+    if (this.disposed) return;
     try {
       const msg = JSON.parse(data);
 
@@ -234,6 +241,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
   }
 
   disconnect() {
+    this.disposed = true;
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;

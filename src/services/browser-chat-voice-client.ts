@@ -8,6 +8,7 @@ import {
 } from './voice-client';
 import { normalizeBaseUrl } from './providers';
 import { t } from '../i18n/store';
+import { ProviderError, asProviderError, classifyHttpStatus } from './errors';
 
 interface ChatToolCall {
   id: string;
@@ -168,7 +169,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private enqueue(fn: () => Promise<void>) {
     this.queue = this.queue.then(fn).catch((err) => {
       if (this.stopped) return;
-      this.callbacks.onError(err instanceof Error ? err.message : String(err));
+      this.callbacks.onError(asProviderError(err, t('err.unknown')));
     });
   }
 
@@ -194,12 +195,12 @@ export class BrowserChatVoiceClient implements VoiceClient {
         signal: ctrl.signal,
       });
     } catch {
-      throw new Error(t('err.chatTimeout'));
+      throw new ProviderError('network', t('err.chatTimeout'));
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) {
-      throw new Error(t('err.providerError', { status: res.status }));
+      throw new ProviderError(classifyHttpStatus(res.status), t('err.providerError', { status: res.status }));
     }
     return res.json();
   }

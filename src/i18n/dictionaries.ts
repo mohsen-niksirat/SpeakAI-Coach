@@ -61,6 +61,10 @@ export const en = {
   'summary.analyzing': 'Analyzing your transcript with Gemini…',
   'summary.aiEvaluated': 'AI-evaluated from your session transcript',
   'summary.heuristic': 'Heuristic estimate — AI report unavailable',
+  'summary.disclaimer':
+    'This is an AI-based practice estimate, not an official IELTS score.',
+  'summary.pronunciationNote':
+    'Pronunciation is inferred from the transcript only and has limited accuracy — true pronunciation needs audio analysis (stress, intonation, phonemes).',
   'criteria.fluency': 'Fluency & Coherence',
   'criteria.lexical': 'Lexical Resource',
   'criteria.grammar': 'Grammatical Range & Accuracy',
@@ -115,6 +119,7 @@ export const en = {
   'err.connTimeout': 'Connection timed out. The endpoint did not respond in 25s — check your VPN connection.',
   'err.connLost': 'Connection lost: {msg}. Restart the session to try another key.',
   'err.triedAll': ' (tried all {n} keys)',
+  'err.unknown': 'Something went wrong.',
   'err.noSr': 'This browser does not support speech recognition for chat providers. Use Chrome or Edge.',
   'err.noTts': 'This browser does not support speech synthesis.',
   'err.srStart': 'Could not start speech recognition.',
@@ -196,6 +201,9 @@ export const fa: Record<TranslationKey, string> = {
   'summary.analyzing': 'در حال تحلیل متن گفتگو با Gemini…',
   'summary.aiEvaluated': 'ارزیابی شده با هوش مصنوعی از روی متن جلسه',
   'summary.heuristic': 'تخمین آزمایشی — گزارش هوش مصنوعی در دسترس نبود',
+  'summary.disclaimer': 'این یک برآورد تمرینی مبتنی بر هوش مصنوعی است، نه نمره رسمی آیلتس.',
+  'summary.pronunciationNote':
+    'تلفظ فقط از روی متن استنباط شده و دقت محدودی دارد — تلفظ واقعی نیازمند تحلیل صوتی (stress، intonation و فونِم‌ها) است.',
   'criteria.fluency': 'روانی و انسجام',
   'criteria.lexical': 'منابع واژگانی',
   'criteria.grammar': 'دامنه و دقت دستوری',
@@ -250,6 +258,7 @@ export const fa: Record<TranslationKey, string> = {
   'err.connTimeout': 'اتصال timeout شد. ظرف ۲۵ ثانیه جوابی نیامد — اتصال فیلترشکنت را چک کن.',
   'err.connLost': 'اتصال قطع شد: {msg}. برای امتحان کلید دیگر، جلسه را دوباره شروع کن.',
   'err.triedAll': ' (همه {n} کلید امتحان شد)',
+  'err.unknown': 'مشکلی پیش آمد.',
   'err.noSr': 'این مرورگر تشخیص گفتار برای ارائه‌دهنده‌های چتی را ندارد. از کروم یا اِج استفاده کن.',
   'err.noTts': 'این مرورگر تبدیل متن به صدا ندارد.',
   'err.srStart': 'شروع تشخیص گفتار ممکن نشد.',

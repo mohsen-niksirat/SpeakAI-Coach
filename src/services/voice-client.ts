@@ -1,4 +1,5 @@
 import { CoachRole, VocabCard, FeedbackLog, TranscriptRole } from '../types';
+import { ProviderError, ProviderErrorKind } from './errors';
 
 export interface VoiceClientCallbacks {
   onSetupComplete: () => void;
@@ -8,8 +9,8 @@ export interface VoiceClientCallbacks {
   onTranscript: (role: TranscriptRole, text: string, finished: boolean) => void;
   onVocabDiscovered: (card: VocabCard) => void;
   onFeedbackGiven: (feedback: FeedbackLog) => void;
-  onError: (err: string) => void;
-  onClose: (code: number, reason?: string) => void;
+  onError: (err: string | ProviderError) => void;
+  onClose: (code: number, reason?: string, kind?: ProviderErrorKind) => void;
   onNotice?: (message: string) => void;
 }
 

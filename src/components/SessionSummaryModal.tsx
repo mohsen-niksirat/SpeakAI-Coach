@@ -55,6 +55,10 @@ export const SessionSummaryModal: React.FC<Props> = ({ isOpen, onClose, stats, r
           )}
         </div>
 
+        <p className="text-[10px] text-slate-500 text-center -mt-2 mb-4 leading-relaxed">
+          {t('summary.disclaimer')}
+        </p>
+
         {reportStatus === 'ready' && report && (
           <div className="space-y-4 mb-4">
             <div className="space-y-2">
@@ -70,6 +74,8 @@ export const SessionSummaryModal: React.FC<Props> = ({ isOpen, onClose, stats, r
                 </div>
               ))}
             </div>
+
+            <p className="text-[10px] text-slate-500 leading-relaxed">{t('summary.pronunciationNote')}</p>
 
             {report.strengths.length > 0 && (
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">

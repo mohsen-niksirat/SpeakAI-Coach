@@ -16,7 +16,7 @@ function roundBand(value: number): number {
   return Math.min(9, Math.max(0, Math.round(value * 2) / 2));
 }
 
-function parseReport(text: string): SessionReport {
+export function parseReport(text: string): SessionReport {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   const data = JSON.parse(cleaned);
 
