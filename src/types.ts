@@ -1,0 +1,53 @@
+export type CoachRole = 'ielts_examiner' | 'friendly_chat' | 'job_interview' | 'debate_partner';
+export type VoiceName = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Aoede';
+
+export type ConnectionPhase = 'idle' | 'connecting' | 'connected';
+export type ReportStatus = 'idle' | 'loading' | 'ready' | 'failed';
+
+export interface VocabCard {
+  id: string;
+  word: string;
+  phonetic?: string;
+  definition: string;
+  contextSentence: string;
+  timestamp: string;
+}
+
+export interface FeedbackLog {
+  id: string;
+  userSpoke: string;
+  betterAlternative: string;
+  explanation: string;
+  type: 'grammar' | 'vocabulary' | 'pronunciation';
+  timestamp: string;
+}
+
+export type TranscriptRole = 'user' | 'model';
+
+export interface TranscriptEntry {
+  id: string;
+  role: TranscriptRole;
+  text: string;
+  done: boolean;
+}
+
+export interface CriterionScore {
+  key: 'fluency' | 'lexical' | 'grammar' | 'pronunciation';
+  label: string;
+  band: number;
+  comment: string;
+}
+
+export interface SessionReport {
+  overallBand: number;
+  criteria: CriterionScore[];
+  strengths: string[];
+  improvements: string[];
+}
+
+export interface SessionStats {
+  durationSeconds: number;
+  wordsRecordedCount: number;
+  correctionsCount: number;
+  estimatedBandScore: number;
+}
