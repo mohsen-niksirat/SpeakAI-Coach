@@ -6,16 +6,16 @@ export class AudioRecorder {
   private onDataCallback: ((base64Pcm: string) => void) | null = null;
   public onVolumeChange: ((volume: number) => void) | null = null;
 
-  async start(onData: (base64Pcm: string) => void): Promise<void> {
+  async start(onData: (base64Pcm: string) => void, sampleRate = 16000): Promise<void> {
     this.onDataCallback = onData;
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-      sampleRate: 16000,
+      sampleRate,
     });
 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        sampleRate: 16000,
+        sampleRate,
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
@@ -27,7 +27,7 @@ export class AudioRecorder {
 
     this.processor.onaudioprocess = (e) => {
       const inputData = e.inputBuffer.getChannelData(0);
-      
+
       let sum = 0;
       for (let i = 0; i < inputData.length; i++) {
         sum += inputData[i] * inputData[i];

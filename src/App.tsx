@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGeminiLive } from './hooks/useGeminiLive';
 import { VisualizerOrb } from './components/VisualizerOrb';
 import { LiveFeedbackPanel } from './components/LiveFeedbackPanel';
@@ -6,14 +6,20 @@ import { VocabCardList } from './components/VocabCardList';
 import { TranscriptPanel } from './components/TranscriptPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
-import { CoachRole, VoiceName } from './types';
+import { CoachRole, ProviderSettings } from './types';
+import { loadProviderSettings, saveProviderSettings } from './services/providers';
 import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [settings, setSettings] = useState<ProviderSettings>(loadProviderSettings);
   const [role, setRole] = useState<CoachRole>('ielts_examiner');
-  const [voice, setVoice] = useState<VoiceName>('Aoede');
+  const [voice, setVoice] = useState('Aoede');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const updateSettings = (next: ProviderSettings) => {
+    setSettings(next);
+    saveProviderSettings(next);
+  };
 
   const {
     phase,
@@ -35,13 +41,14 @@ export default function App() {
     reportStatus,
     startSession,
     endSession,
-  } = useGeminiLive();
+  } = useGeminiLive(settings, updateSettings);
 
-  const handleSaveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('gemini_api_key', key);
-    clearError();
-  };
+  useEffect(() => {
+    if (settings.providers.length === 0 && !localStorage.getItem('speakai_onboarded')) {
+      setIsSettingsOpen(true);
+      localStorage.setItem('speakai_onboarded', '1');
+    }
+  }, [settings.providers.length]);
 
   const minutes = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
   const seconds = String(sessionSeconds % 60).padStart(2, '0');
@@ -95,7 +102,7 @@ export default function App() {
             <div className="mt-4 flex items-center gap-4">
               {!isConnected && phase !== 'connecting' ? (
                 <button
-                  onClick={() => startSession(apiKey, role, voice)}
+                  onClick={() => startSession(role, voice)}
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
                 >
                   <Mic className="w-4 h-4" />
@@ -134,7 +141,7 @@ export default function App() {
             <p className="text-[11px] text-slate-500 mt-3 text-center">
               {isConnected
                 ? 'Interrupt freely anytime — SpeakAI automatically yields.'
-                : 'Low latency • Powered by Gemini Live WebSocket'}
+                : 'Low latency • Gemini Live & OpenAI Realtime • BYOK multi-provider'}
             </p>
           </div>
 
@@ -157,8 +164,8 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        apiKey={apiKey}
-        onSaveApiKey={handleSaveApiKey}
+        settings={settings}
+        onSettingsChange={updateSettings}
         role={role}
         onSelectRole={setRole}
         voice={voice}

@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveClient } from '../services/gemini-live-client';
+import { OpenAIRealtimeClient } from '../services/openai-realtime-client';
 import { AudioRecorder } from '../audio/audio-recorder';
 import { AudioPlayer } from '../audio/audio-player';
 import { generateSessionReport, heuristicBand } from '../services/session-report';
+import { VoiceClient, VoiceClientCallbacks } from '../services/voice-client';
+import { findProvider, activeKey, rotateKey } from '../services/providers';
 import {
   CoachRole,
   VoiceName,
@@ -13,9 +16,12 @@ import {
   ConnectionPhase,
   ReportStatus,
   SessionReport,
+  Provider,
+  ProviderSettings,
 } from '../types';
 
 const VOCAB_STORAGE_KEY = 'speakai_vocab';
+const CONNECT_TIMEOUT_MS = 15000;
 
 function loadPersistedVocab(): VocabCard[] {
   try {
@@ -31,7 +37,24 @@ function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function useGeminiLive() {
+function inputRateFor(provider: Provider): number {
+  return provider.kind === 'gemini-live' ? 16000 : 24000;
+}
+
+function createVoiceClient(
+  provider: Provider,
+  apiKey: string,
+  role: CoachRole,
+  voice: VoiceName,
+  callbacks: VoiceClientCallbacks,
+): VoiceClient {
+  if (provider.kind === 'openai-realtime') {
+    return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice);
+  }
+  return new GeminiLiveClient(callbacks, provider, apiKey, role, voice);
+}
+
+export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (next: ProviderSettings) => void) {
   const [phase, setPhase] = useState<ConnectionPhase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState(false);
@@ -46,15 +69,24 @@ export function useGeminiLive() {
   const [report, setReport] = useState<SessionReport | null>(null);
   const [reportStatus, setReportStatus] = useState<ReportStatus>('idle');
 
-  const clientRef = useRef<GeminiLiveClient | null>(null);
+  const clientRef = useRef<VoiceClient | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   const timerRef = useRef<number | null>(null);
-  const apiKeyRef = useRef('');
+  const connectTimerRef = useRef<number | null>(null);
+  const attemptTimerRef = useRef<number | null>(null);
   const sessionActiveRef = useRef(false);
+  const captureStartedRef = useRef(false);
   const secondsRef = useRef(0);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const feedbackLogsRef = useRef<FeedbackLog[]>([]);
+  const reportProviderRef = useRef<Provider | null>(null);
+  const reconnectCountRef = useRef(0);
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     feedbackLogsRef.current = feedbackLogs;
@@ -75,15 +107,43 @@ export function useGeminiLive() {
     }
   };
 
+  const clearConnectTimers = () => {
+    if (connectTimerRef.current !== null) {
+      clearTimeout(connectTimerRef.current);
+      connectTimerRef.current = null;
+    }
+    if (attemptTimerRef.current !== null) {
+      clearTimeout(attemptTimerRef.current);
+      attemptTimerRef.current = null;
+    }
+  };
+
   const teardownRefs = useCallback(() => {
     clearTimer();
+    clearConnectTimers();
     recorderRef.current?.stop();
     playerRef.current?.close();
     clientRef.current?.disconnect();
     recorderRef.current = null;
     playerRef.current = null;
     clientRef.current = null;
+    captureStartedRef.current = false;
   }, []);
+
+  const persistProviderKey = useCallback(
+    (updated: Provider) => {
+      const current = settingsRef.current;
+      onSettingsChange({
+        ...current,
+        providers: current.providers.map((p) => (p.id === updated.id ? updated : p)),
+      });
+      settingsRef.current = {
+        ...current,
+        providers: current.providers.map((p) => (p.id === updated.id ? updated : p)),
+      };
+    },
+    [onSettingsChange],
+  );
 
   const abortWithError = useCallback(
     (message: string) => {
@@ -98,12 +158,15 @@ export function useGeminiLive() {
     [teardownRefs],
   );
 
-  const startSession = async (apiKey: string, role: CoachRole, voice: VoiceName) => {
+  const startSession = async (role: CoachRole, voice: VoiceName) => {
     if (sessionActiveRef.current) return;
-    if (!apiKey) {
-      setError('Enter your Gemini API Key in Settings first.');
+
+    const voiceProvider = findProvider(settingsRef.current, settingsRef.current.voiceProviderId);
+    if (!voiceProvider || voiceProvider.keys.length === 0) {
+      setError('Add a voice provider with at least one API key in Settings first.');
       return;
     }
+    const reportProvider = findProvider(settingsRef.current, settingsRef.current.reportProviderId);
 
     setError(null);
     setReport(null);
@@ -114,7 +177,9 @@ export function useGeminiLive() {
     setSessionSeconds(0);
     setSessionVocabCount(0);
     secondsRef.current = 0;
-    apiKeyRef.current = apiKey;
+    reportProviderRef.current = reportProvider;
+    sessionActiveRef.current = true;
+    reconnectCountRef.current = 0;
 
     try {
       playerRef.current = new AudioPlayer();
@@ -122,29 +187,81 @@ export function useGeminiLive() {
         setAiVolume(vol);
         setIsTalking(vol > 0.05);
       };
+    } catch (err) {
+      console.error('Failed to create audio player:', err);
+      abortWithError('Audio playback is not available in this browser.');
+      return;
+    }
 
-      const beginCapture = async () => {
-        recorderRef.current = new AudioRecorder();
-        recorderRef.current.onVolumeChange = (vol) => {
-          setMicVolume(vol);
-        };
-        await recorderRef.current.start((chunk) => {
+    const beginCapture = async (provider: Provider) => {
+      recorderRef.current = new AudioRecorder();
+      recorderRef.current.onVolumeChange = (vol) => {
+        setMicVolume(vol);
+      };
+      await recorderRef.current.start(
+        (chunk) => {
           clientRef.current?.sendAudioChunk(chunk);
-        });
-        timerRef.current = window.setInterval(() => {
-          secondsRef.current += 1;
-          setSessionSeconds(secondsRef.current);
-        }, 1000);
+        },
+        inputRateFor(provider),
+      );
+      timerRef.current = window.setInterval(() => {
+        secondsRef.current += 1;
+        setSessionSeconds(secondsRef.current);
+      }, 1000);
+    };
+
+    const startAttempt = (provider: Provider, attemptsSoFar: number) => {
+      if (!sessionActiveRef.current) return;
+
+      let ready = false;
+      let dead = false;
+
+      const fail = (message: string) => {
+        if (dead || !sessionActiveRef.current) return;
+        dead = true;
+        clearConnectTimers();
+        clientRef.current?.disconnect();
+
+        if (!ready) {
+          if (attemptsSoFar + 1 < provider.keys.length) {
+            const next = rotateKey(provider);
+            persistProviderKey(next);
+            attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 250);
+          } else {
+            const suffix = provider.keys.length > 1 ? ` (tried all ${provider.keys.length} keys)` : '';
+            abortWithError(`${message}${suffix}`);
+          }
+          return;
+        }
+
+        // mid-session connection loss: bounded auto-reconnect with key rotation
+        if (reconnectCountRef.current < provider.keys.length) {
+          reconnectCountRef.current += 1;
+          const next = rotateKey(provider);
+          persistProviderKey(next);
+          setPhase('connecting');
+          attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 400);
+        } else {
+          abortWithError(`Connection lost: ${message}. Restart the session to try another key.`);
+        }
       };
 
-      clientRef.current = new GeminiLiveClient({
+      const callbacks: VoiceClientCallbacks = {
         onSetupComplete: () => {
-          if (!sessionActiveRef.current) return;
+          if (dead || !sessionActiveRef.current) return;
+          ready = true;
+          if (connectTimerRef.current !== null) {
+            clearTimeout(connectTimerRef.current);
+            connectTimerRef.current = null;
+          }
           setPhase('connected');
-          beginCapture().catch((err) => {
-            console.error('Failed to initialize audio devices:', err);
-            abortWithError('Could not access the microphone. Check browser permissions.');
-          });
+          if (!captureStartedRef.current) {
+            captureStartedRef.current = true;
+            beginCapture(provider).catch((err) => {
+              console.error('Failed to initialize audio devices:', err);
+              abortWithError('Could not access the microphone. Check browser permissions.');
+            });
+          }
         },
         onAudioData: (base64) => {
           playerRef.current?.playChunk(base64);
@@ -173,26 +290,27 @@ export function useGeminiLive() {
           setFeedbackLogs((prev) => [feedback, ...prev]);
         },
         onError: (err) => {
-          if (!sessionActiveRef.current) return;
-          abortWithError(err);
+          fail(err);
         },
         onClose: (code) => {
-          if (!sessionActiveRef.current) return;
-          abortWithError(
-            code === 1000
+          fail(
+            code === 1000 || code === 1005
               ? 'Connection closed by server.'
-              : `Connection failed (code ${code}). Check your API key and model availability.`,
+              : `Connection failed (code ${code}). Check your API key and base URL.`,
           );
         },
-      });
+      };
 
-      sessionActiveRef.current = true;
       setPhase('connecting');
-      clientRef.current.connect(apiKey, role, voice);
-    } catch (err) {
-      console.error('Failed to start session:', err);
-      abortWithError('Could not start the session.');
-    }
+      clientRef.current = createVoiceClient(provider, activeKey(provider), role, voice, callbacks);
+      clientRef.current.connect();
+
+      connectTimerRef.current = window.setTimeout(() => {
+        fail('Connection timed out.');
+      }, CONNECT_TIMEOUT_MS);
+    };
+
+    startAttempt(voiceProvider, 0);
   };
 
   const endSession = useCallback(() => {
@@ -209,6 +327,7 @@ export function useGeminiLive() {
     const seconds = secondsRef.current;
     const entries = transcriptRef.current;
     const corrections = feedbackLogsRef.current;
+    const reportProvider = reportProviderRef.current;
 
     if (seconds > 5 && entries.length > 0) {
       const transcriptText = entries
@@ -216,20 +335,30 @@ export function useGeminiLive() {
         .join('\n');
 
       setShowSummary(true);
+
+      if (!reportProvider) {
+        setReport(null);
+        setReportStatus('failed');
+        return;
+      }
+
       setReport(null);
       setReportStatus('loading');
 
-      generateSessionReport(apiKeyRef.current, transcriptText, corrections)
-        .then((r) => {
-          setReport(r);
+      generateSessionReport(reportProvider, transcriptText, corrections)
+        .then((result) => {
+          setReport(result.report);
           setReportStatus('ready');
+          if (result.usedKeyIndex !== reportProvider.keyIndex) {
+            persistProviderKey({ ...reportProvider, keyIndex: result.usedKeyIndex });
+          }
         })
         .catch((err) => {
           console.error('Session report generation failed:', err);
           setReportStatus('failed');
         });
     }
-  }, [teardownRefs]);
+  }, [teardownRefs, persistProviderKey]);
 
   const clearError = useCallback(() => setError(null), []);
 

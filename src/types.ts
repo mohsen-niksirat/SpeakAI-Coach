@@ -1,5 +1,24 @@
 export type CoachRole = 'ielts_examiner' | 'friendly_chat' | 'job_interview' | 'debate_partner';
-export type VoiceName = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Aoede';
+export type VoiceName = string;
+
+export type ProviderKind = 'gemini-live' | 'openai-realtime' | 'openai-chat';
+
+export interface Provider {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  baseUrl: string;
+  model: string;
+  reportModel?: string;
+  keys: string[];
+  keyIndex: number;
+}
+
+export interface ProviderSettings {
+  providers: Provider[];
+  voiceProviderId: string | null;
+  reportProviderId: string | null;
+}
 
 export type ConnectionPhase = 'idle' | 'connecting' | 'connected';
 export type ReportStatus = 'idle' | 'loading' | 'ready' | 'failed';
