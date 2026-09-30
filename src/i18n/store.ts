@@ -10,6 +10,7 @@ function readInitialLang(): Lang {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'fa' || stored === 'en') return stored;
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) return 'fa';
   } catch {
     // storage unavailable
   }

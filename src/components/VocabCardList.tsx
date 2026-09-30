@@ -41,6 +41,10 @@ export const VocabCardList: React.FC<Props> = ({ cards, onClear, onDeleteCard })
 
   const exportToLeitnerPro = () => {
     if (cards.length === 0) return;
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'SPEAKAI_IMPORT_TO_LEITNER', cards }, '*');
+      return;
+    }
     downloadFile(
       buildLeitnerProJson(cards),
       `LeitnerProMax_Deck_${dateStamp}.json`,

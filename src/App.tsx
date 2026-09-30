@@ -71,6 +71,16 @@ export default function App() {
     saveProviderSettings(next);
   };
 
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'LEITNER_SYNC_PROVIDERS') {
+        setSettings(loadProviderSettings());
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
   const {
     phase,
     isConnected,
