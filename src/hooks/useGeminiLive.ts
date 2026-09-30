@@ -76,6 +76,7 @@ function createVoiceClient(
   callbacks: VoiceClientCallbacks,
   topicPrompt?: string,
   textOnly = false,
+  initialUserMessage?: string,
 ): VoiceClient {
   if (textOnly) {
     const chatProvider: Provider =
@@ -94,13 +95,22 @@ function createVoiceClient(
               model: provider.reportModel || 'gpt-4o-mini',
             }
           : provider;
-    return new BrowserChatVoiceClient(callbacks, chatProvider, apiKey, role, voice, topicPrompt, true);
+    return new BrowserChatVoiceClient(
+      callbacks,
+      chatProvider,
+      apiKey,
+      role,
+      voice,
+      topicPrompt,
+      true,
+      initialUserMessage,
+    );
   }
   if (provider.kind === 'openai-realtime') {
     return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice, topicPrompt);
   }
   if (provider.kind === 'openai-chat') {
-    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice, topicPrompt, false);
+    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice, topicPrompt, false, initialUserMessage);
   }
   return new GeminiLiveClient(callbacks, provider, apiKey, role, voice, topicPrompt);
 }
@@ -363,6 +373,12 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     }
     const reportProvider = findProvider(settingsRef.current, settingsRef.current.reportProviderId);
 
+    const initialUserMessage = pendingTextRef.current;
+    pendingTextRef.current = null;
+    const initialTranscript = initialUserMessage
+      ? mergeTranscript([], 'user', initialUserMessage, true)
+      : [];
+
     setError(null);
     setNotice(null);
     setReport(null);
@@ -371,8 +387,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     setSessionMode(mode);
     sessionModeRef.current = mode;
     setFeedbackLogs([]);
-    setTranscript([]);
-    transcriptRef.current = [];
+    setTranscript(initialTranscript);
+    transcriptRef.current = initialTranscript;
     setSessionSeconds(0);
     setSessionVocabCount(0);
     sessionVocabCountRef.current = 0;
@@ -601,6 +617,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         callbacks,
         topicPrompt,
         sessionModeRef.current === 'text',
+        initialUserMessage ?? undefined,
       );
       clientRef.current.connect();
 

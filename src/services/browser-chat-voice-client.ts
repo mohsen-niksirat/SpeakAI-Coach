@@ -76,6 +76,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private role: CoachRole;
   private topicPrompt?: string;
   private textOnly: boolean;
+  private initialUserMessage?: string;
 
   private messages: ChatMessage[] = [];
   private recognition: any = null;
@@ -103,6 +104,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
     _voice: VoiceName,
     topicPrompt?: string,
     textOnly = false,
+    initialUserMessage?: string,
   ) {
     this.callbacks = callbacks;
     this.provider = provider;
@@ -110,6 +112,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
     this.role = role;
     this.topicPrompt = topicPrompt;
     this.textOnly = textOnly;
+    this.initialUserMessage = initialUserMessage;
     this.effectiveModel = (provider.model || '').trim();
   }
 
@@ -205,8 +208,9 @@ export class BrowserChatVoiceClient implements VoiceClient {
       window.speechSynthesis.onvoiceschanged = load;
     }
 
+    const firstTurn = this.initialUserMessage?.trim() || GREETING_PROMPT;
     this.enqueue(async () => {
-      this.messages.push({ role: 'user', content: GREETING_PROMPT });
+      this.messages.push({ role: 'user', content: firstTurn });
       await this.runAssistantTurn();
     });
   }
@@ -612,7 +616,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
   }
 
   private speak(text: string) {
-    if (!('speechSynthesis' in window) || this.stopped) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || this.stopped) return;
 
     this.stopSpeaking();
     const gen = ++this.speakGen;
@@ -649,7 +653,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
 
   private stopSpeaking() {
     this.speakGen += 1;
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     if (this.speaking) {

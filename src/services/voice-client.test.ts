@@ -212,7 +212,17 @@ describe('GeminiLiveClient binary WebSocket frame decoding', () => {
 
       expect(setupCompleted).toBe(true);
       expect(receivedAudio).toEqual(['AAAA']);
-      expect(transcripts).toEqual([{ speaker: 'model', text: 'Hello! Let us begin Part 1.' }]);
+      // Test sendTextMessage over Gemini Live WebSocket
+      client.sendTextMessage('Can we practice Part 2 now?');
+      const textTurnPayload = JSON.parse(sentPayloads[sentPayloads.length - 1]);
+      expect(textTurnPayload.clientContent.turnComplete).toBe(true);
+      expect(textTurnPayload.clientContent.turns[0].parts[0].text).toBe(
+        'Can we practice Part 2 now?',
+      );
+      expect(transcripts[transcripts.length - 1]).toEqual({
+        speaker: 'user',
+        text: 'Can we practice Part 2 now?',
+      });
 
       client.disconnect();
     } finally {
@@ -221,3 +231,99 @@ describe('GeminiLiveClient binary WebSocket frame decoding', () => {
     }
   });
 });
+
+describe('BrowserChatVoiceClient Text Chat & inline coaching tags', () => {
+  it('runs a text-only chat session, extracts [[CORRECTION]] and [[VOCAB]] tags, and sends follow-up text turns', async () => {
+    const { BrowserChatVoiceClient } = await import('./browser-chat-voice-client');
+    const origFetch = globalThis.fetch;
+
+    try {
+      const requestBodies: any[] = [];
+      globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        requestBodies.push(body);
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content:
+                    'That is a great point! Tell me more about your daily routine. [[CORRECTION: I am agree with you | I agree with you | Agree is a verb, not an adjective | grammar]] [[VOCAB: meticulous | məˈtɪkjələs | showing great attention to detail | She is meticulous about her schedule.]]',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }) as typeof fetch;
+
+      const transcripts: Array<{ role: string; text: string }> = [];
+      const vocabs: string[] = [];
+      const feedbacks: Array<{ userSpoke: string; betterAlternative: string }> = [];
+      let setupDone = false;
+
+      const client = new BrowserChatVoiceClient(
+        {
+          onSetupComplete: () => {
+            setupDone = true;
+          },
+          onAudioData: () => {},
+          onInterrupted: () => {},
+          onTranscript: (role, text) => transcripts.push({ role, text }),
+          onVocabDiscovered: (card) => vocabs.push(card.word),
+          onFeedbackGiven: (fb) =>
+            feedbacks.push({ userSpoke: fb.userSpoke, betterAlternative: fb.betterAlternative }),
+          onError: (err) => {
+            throw err;
+          },
+          onClose: () => {},
+        },
+        {
+          id: 'p-chat',
+          name: 'Groq',
+          kind: 'openai-chat',
+          baseUrl: 'https://api.groq.com/openai/v1',
+          model: 'llama-3.3-70b-versatile',
+          keys: ['gsk_test123'],
+          keyIndex: 0,
+        },
+        'gsk_test123',
+        'ielts_examiner',
+        'Aoede',
+        undefined,
+        true,
+        'Hello coach, I am agree with you!',
+      );
+
+      client.connect();
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(setupDone).toBe(true);
+      expect(requestBodies.length).toBe(1);
+      expect(requestBodies[0].messages[1]).toEqual({
+        role: 'user',
+        content: 'Hello coach, I am agree with you!',
+      });
+      expect(transcripts[0]).toEqual({
+        role: 'model',
+        text: 'That is a great point! Tell me more about your daily routine.',
+      });
+      expect(feedbacks).toEqual([
+        { userSpoke: 'I am agree with you', betterAlternative: 'I agree with you' },
+      ]);
+      expect(vocabs).toEqual(['meticulous']);
+
+      client.sendTextMessage('I wake up early every day.');
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(requestBodies.length).toBe(2);
+      expect(transcripts.some((t) => t.role === 'user' && t.text === 'I wake up early every day.')).toBe(true);
+
+      client.disconnect();
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
