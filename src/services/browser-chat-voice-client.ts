@@ -58,14 +58,24 @@ const GEMINI_REST_FALLBACK_MODELS = [
   'gemini-3.6-flash',
 ];
 
-// Voice for chat-only providers (and Gemini REST fallback): browser SpeechRecognition (STT) →
-// provider chat/completions or Gemini generateContent → browser speechSynthesis (TTS).
+const INLINE_COACHING_TAG_INSTRUCTION = `
+
+INLINE COACHING TAGS (when function tools are not called):
+- Whenever the student makes a grammar, vocabulary, or phrasing mistake, append at the very end of your reply:
+[[CORRECTION: exact phrase student wrote/said | natural native alternative | short explanation | grammar]]
+- Whenever you introduce or notice a high-value B2/C1/C2 word or idiom, append at the very end of your reply:
+[[VOCAB: word | IPA phonetic | short English definition | example sentence]]
+Keep your conversational reply natural and concise (1-3 sentences) and place any [[...]] tags strictly at the end.`;
+
+// Voice & Text Chat client for chat providers (and Gemini REST fallback): browser SpeechRecognition (STT)
+// or direct text input → provider chat/completions or Gemini generateContent → browser speechSynthesis (TTS).
 export class BrowserChatVoiceClient implements VoiceClient {
   private callbacks: VoiceClientCallbacks;
   private provider: Provider;
   private apiKey: string;
   private role: CoachRole;
   private topicPrompt?: string;
+  private textOnly: boolean;
 
   private messages: ChatMessage[] = [];
   private recognition: any = null;
@@ -92,12 +102,14 @@ export class BrowserChatVoiceClient implements VoiceClient {
     role: CoachRole,
     _voice: VoiceName,
     topicPrompt?: string,
+    textOnly = false,
   ) {
     this.callbacks = callbacks;
     this.provider = provider;
     this.apiKey = cleanApiKey(apiKey);
     this.role = role;
     this.topicPrompt = topicPrompt;
+    this.textOnly = textOnly;
     this.effectiveModel = (provider.model || '').trim();
   }
 
@@ -111,7 +123,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
       } catch {
         // ignore
       }
-    } else {
+    } else if (!this.textOnly) {
       this.wantRunning = true;
       try {
         this.recognition.start();
@@ -122,62 +134,70 @@ export class BrowserChatVoiceClient implements VoiceClient {
   }
 
   connect() {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      this.callbacks.onError(t('err.noSr'));
-      return;
-    }
-    if (!('speechSynthesis' in window)) {
-      this.callbacks.onError(t('err.noTts'));
-      return;
-    }
+    this.messages = [
+      {
+        role: 'system',
+        content: `${getRolePrompt(this.role, this.topicPrompt)}${INLINE_COACHING_TAG_INSTRUCTION}`,
+      },
+    ];
 
-    this.messages = [{ role: 'system', content: getRolePrompt(this.role, this.topicPrompt) }];
+    const SR =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
 
-    try {
-      this.recognition = new SR();
-    } catch {
-      this.callbacks.onError(t('err.srStart'));
-      return;
-    }
-    this.recognition.lang = 'en-US';
-    this.recognition.continuous = true;
-    this.recognition.interimResults = true;
+    if (!this.textOnly && SR) {
+      try {
+        this.recognition = new SR();
+        this.recognition.lang = 'en-US';
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
 
-    this.recognition.onresult = (event: any) => {
-      if (this.stopped || this.muted) return;
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          this.utterance += result[0].transcript;
-        }
+        this.recognition.onresult = (event: any) => {
+          if (this.stopped || this.muted) return;
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) {
+              this.utterance += result[0].transcript;
+            }
+          }
+          this.resetSilenceTimer();
+        };
+
+        this.recognition.onerror = (event: any) => {
+          if (this.stopped) return;
+          const code = event?.error;
+          if (code === 'not-allowed' || code === 'service-not-allowed') {
+            this.textOnly = true;
+            this.wantRunning = false;
+            this.callbacks.onNotice?.(
+              'دسترسی میکروفون بسته است — جلسه در حالت چت متنی ادامه دارد و می‌توانید پیام خود را تایپ کنید.',
+            );
+          }
+        };
+
+        this.recognition.onend = () => {
+          if (this.stopped || !this.wantRunning || this.muted || this.textOnly) return;
+          window.setTimeout(() => {
+            if (this.stopped || !this.wantRunning || this.muted || this.textOnly || !this.recognition) return;
+            try {
+              this.recognition.start();
+            } catch {
+              // already started
+            }
+          }, 200);
+        };
+      } catch {
+        this.textOnly = true;
       }
-      this.resetSilenceTimer();
-    };
+    } else if (!this.textOnly && !SR) {
+      this.textOnly = true;
+      this.callbacks.onNotice?.(
+        'تشخیص گفتار صوتی در این مرورگر پشتیبانی نمی‌شود — حالت چت متنی هوشمند فعال شد.',
+      );
+    }
 
-    this.recognition.onerror = (event: any) => {
-      if (this.stopped) return;
-      const code = event?.error;
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
-        this.stopped = true;
-        this.callbacks.onError(t('err.micDenied'));
-      }
-      // 'no-speech' / 'aborted' are routine; onend will restart
-    };
-
-    this.recognition.onend = () => {
-      if (this.stopped || !this.wantRunning || this.muted) return;
-      window.setTimeout(() => {
-        if (this.stopped || !this.wantRunning || this.muted || !this.recognition) return;
-        try {
-          this.recognition.start();
-        } catch {
-          // already started
-        }
-      }, 200);
-    };
-
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       const load = () => {
         this.cachedVoices = window.speechSynthesis.getVoices();
       };
@@ -194,11 +214,13 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private markReadyAndStartRecognition() {
     if (this.setupCompleted || this.stopped) return;
     this.setupCompleted = true;
-    this.wantRunning = true;
-    try {
-      this.recognition?.start();
-    } catch {
-      // ignore double-start
+    if (!this.textOnly && this.recognition) {
+      this.wantRunning = true;
+      try {
+        this.recognition.start();
+      } catch {
+        // ignore double-start
+      }
     }
     this.callbacks.onSetupComplete();
   }
@@ -206,6 +228,27 @@ export class BrowserChatVoiceClient implements VoiceClient {
   // Mic audio goes through SpeechRecognition instead of raw PCM chunks.
   sendAudioChunk(_base64Pcm: string) {
     // no-op
+  }
+
+  sendTextMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || this.stopped) return;
+
+    if (this.silenceTimer !== null) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+    this.utterance = '';
+
+    if (this.speaking) {
+      this.stopSpeaking();
+    }
+
+    this.callbacks.onTranscript('user', trimmed, true);
+    this.enqueue(async () => {
+      this.messages.push({ role: 'user', content: trimmed });
+      await this.runAssistantTurn();
+    });
   }
 
   private resetSilenceTimer() {
@@ -506,14 +549,56 @@ export class BrowserChatVoiceClient implements VoiceClient {
         continue;
       }
 
-      const text = String(message.content ?? '').trim();
-      this.messages.push({ role: 'assistant', content: text });
-      if (text) {
-        this.callbacks.onTranscript('model', text, true);
-        this.speak(text);
+      const rawText = String(message.content ?? '').trim();
+      const cleanText = this.extractInlineCoachingTags(rawText);
+      this.messages.push({ role: 'assistant', content: cleanText || rawText });
+      if (cleanText) {
+        this.callbacks.onTranscript('model', cleanText, true);
+        this.speak(cleanText);
       }
       return;
     }
+  }
+
+  private extractInlineCoachingTags(text: string): string {
+    if (!text) return '';
+    let cleaned = text;
+
+    const corrRegex = /\[\[\s*CORRECTION\s*:\s*([^\]]+?)\s*\]\]/gi;
+    let match: RegExpExecArray | null;
+    while ((match = corrRegex.exec(text)) !== null) {
+      const parts = match[1].split('|').map((s) => s.trim());
+      if (parts.length >= 2 && parts[0] && parts[1]) {
+        const rawType = (parts[3] || 'grammar').toLowerCase();
+        const type =
+          rawType === 'vocabulary' || rawType === 'pronunciation' ? rawType : 'grammar';
+        const res = handleToolCall('flag_grammar_mistake', {
+          userSpoke: parts[0],
+          betterAlternative: parts[1],
+          explanation: parts[2] || 'Suggested native phrasing.',
+          type,
+        });
+        if (res?.feedback) this.callbacks.onFeedbackGiven(res.feedback);
+      }
+    }
+    cleaned = cleaned.replace(corrRegex, '');
+
+    const vocabRegex = /\[\[\s*VOCAB\s*:\s*([^\]]+?)\s*\]\]/gi;
+    while ((match = vocabRegex.exec(text)) !== null) {
+      const parts = match[1].split('|').map((s) => s.trim());
+      if (parts.length >= 2 && parts[0]) {
+        const res = handleToolCall('record_vocabulary', {
+          word: parts[0],
+          phonetic: parts.length >= 3 ? parts[1] : '',
+          definition: parts.length >= 3 ? parts[2] : parts[1],
+          contextSentence: parts[3] || parts[2] || parts[0],
+        });
+        if (res?.card) this.callbacks.onVocabDiscovered(res.card);
+      }
+    }
+    cleaned = cleaned.replace(vocabRegex, '');
+
+    return cleaned.trim();
   }
 
   private pickVoice(): SpeechSynthesisVoice | null {

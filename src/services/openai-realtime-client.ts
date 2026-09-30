@@ -170,6 +170,22 @@ export class OpenAIRealtimeClient implements VoiceClient {
     this.send({ type: 'input_audio_buffer.append', audio: base64Pcm24 });
   }
 
+  sendTextMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || !this.sessionReady) return;
+    this.callbacks.onInterrupted();
+    this.callbacks.onTranscript('user', trimmed, true);
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: trimmed }],
+      },
+    });
+    this.send({ type: 'response.create' });
+  }
+
   private emitModelTranscript(text: string, finished: boolean) {
     if (!text) return;
     this.callbacks.onTranscript('model', text, finished);

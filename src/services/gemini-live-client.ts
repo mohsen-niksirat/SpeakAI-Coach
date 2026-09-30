@@ -422,6 +422,38 @@ export class GeminiLiveClient implements VoiceClient {
     this.ws.send(JSON.stringify(realtimeInput));
   }
 
+  sendTextMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupDone) return;
+
+    this.callbacks.onInterrupted();
+    this.callbacks.onTranscript('user', trimmed, true);
+
+    if (/^gemini-3/i.test(this.effectiveModel)) {
+      this.ws.send(
+        JSON.stringify({
+          realtimeInput: {
+            text: trimmed,
+          },
+        }),
+      );
+    } else {
+      this.ws.send(
+        JSON.stringify({
+          clientContent: {
+            turns: [
+              {
+                role: 'user',
+                parts: [{ text: trimmed }],
+              },
+            ],
+            turnComplete: true,
+          },
+        }),
+      );
+    }
+  }
+
   private handleServerMessage(data: string) {
     try {
       const msg = JSON.parse(data);
@@ -474,6 +506,9 @@ export class GeminiLiveClient implements VoiceClient {
         for (const part of msg.serverContent.modelTurn.parts) {
           if (part.inlineData?.data) {
             this.callbacks.onAudioData(part.inlineData.data);
+          }
+          if (part.text && !msg.serverContent?.outputTranscription?.text) {
+            this.callbacks.onTranscript('model', part.text, !!msg.serverContent?.turnComplete);
           }
         }
       }

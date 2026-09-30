@@ -17,6 +17,7 @@ export interface VoiceClientCallbacks {
 export interface VoiceClient {
   connect(): void;
   sendAudioChunk(base64Pcm: string): void;
+  sendTextMessage?(text: string): void;
   setMuted?(muted: boolean): void;
   disconnect(): void;
 }

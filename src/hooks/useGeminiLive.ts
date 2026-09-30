@@ -75,18 +75,39 @@ function createVoiceClient(
   voice: VoiceName,
   callbacks: VoiceClientCallbacks,
   topicPrompt?: string,
+  textOnly = false,
 ): VoiceClient {
+  if (textOnly) {
+    const chatProvider: Provider =
+      provider.kind === 'gemini-live'
+        ? {
+            ...provider,
+            kind: 'openai-chat',
+            baseUrl: provider.baseUrl || 'https://generativelanguage.googleapis.com',
+            model: provider.reportModel || 'gemini-2.5-flash',
+          }
+        : provider.kind === 'openai-realtime'
+          ? {
+              ...provider,
+              kind: 'openai-chat',
+              baseUrl: provider.baseUrl || 'https://api.openai.com/v1',
+              model: provider.reportModel || 'gpt-4o-mini',
+            }
+          : provider;
+    return new BrowserChatVoiceClient(callbacks, chatProvider, apiKey, role, voice, topicPrompt, true);
+  }
   if (provider.kind === 'openai-realtime') {
     return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice, topicPrompt);
   }
   if (provider.kind === 'openai-chat') {
-    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice, topicPrompt);
+    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice, topicPrompt, false);
   }
   return new GeminiLiveClient(callbacks, provider, apiKey, role, voice, topicPrompt);
 }
 
 export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (next: ProviderSettings) => void) {
   const [phase, setPhase] = useState<ConnectionPhase>('idle');
+  const [sessionMode, setSessionMode] = useState<'voice' | 'text'>('voice');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState(false);
@@ -111,6 +132,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const attemptTimerRef = useRef<number | null>(null);
   const sessionActiveRef = useRef(false);
   const captureStartedRef = useRef(false);
+  const sessionModeRef = useRef<'voice' | 'text'>('voice');
+  const pendingTextRef = useRef<string | null>(null);
   const secondsRef = useRef(0);
   const sessionVocabCountRef = useRef(0);
   const sessionVocabCardsRef = useRef<VocabCard[]>([]);
@@ -324,7 +347,13 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     });
   }, []);
 
-  const startSession = async (role: CoachRole, voice: VoiceName, topicPrompt?: string, topicTitle?: string) => {
+  const startSession = async (
+    role: CoachRole,
+    voice: VoiceName,
+    topicPrompt?: string,
+    topicTitle?: string,
+    mode: 'voice' | 'text' = 'voice',
+  ) => {
     if (sessionActiveRef.current) return;
 
     const voiceProvider = findProvider(settingsRef.current, settingsRef.current.voiceProviderId);
@@ -339,6 +368,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     setReport(null);
     setReportStatus('idle');
     setIsMuted(false);
+    setSessionMode(mode);
+    sessionModeRef.current = mode;
     setFeedbackLogs([]);
     setTranscript([]);
     transcriptRef.current = [];
@@ -368,8 +399,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     }
 
     const beginCapture = async (provider: Provider) => {
-      // BrowserChatVoiceClient uses SpeechRecognition directly; avoid opening a second getUserMedia stream
-      if (provider.kind !== 'openai-chat') {
+      // In text mode or BrowserChatVoiceClient, do not open AudioRecorder getUserMedia stream
+      if (sessionModeRef.current !== 'text' && provider.kind !== 'openai-chat') {
         recorderRef.current = new AudioRecorder();
         recorderRef.current.onVolumeChange = (vol) => {
           setMicVolume(vol);
@@ -496,6 +527,13 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
               abortWithError(t('err.mic'));
             });
           }
+          if (pendingTextRef.current) {
+            const queued = pendingTextRef.current;
+            pendingTextRef.current = null;
+            window.setTimeout(() => {
+              clientRef.current?.sendTextMessage?.(queued);
+            }, 150);
+          }
         },
         onAudioData: (base64) => {
           if (stale()) return;
@@ -555,7 +593,15 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       };
 
       setPhase('connecting');
-      clientRef.current = createVoiceClient(provider, activeKey(provider), role, voice, callbacks, topicPrompt);
+      clientRef.current = createVoiceClient(
+        provider,
+        activeKey(provider),
+        role,
+        voice,
+        callbacks,
+        topicPrompt,
+        sessionModeRef.current === 'text',
+      );
       clientRef.current.connect();
 
       if (!dead) {
@@ -567,6 +613,28 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
 
     startAttempt(voiceProvider, 0);
   };
+
+  const sendTextMessage = useCallback(
+    (
+      text: string,
+      role: CoachRole = activeRoleRef.current,
+      voice: VoiceName = 'Aoede',
+      topicPrompt?: string,
+      topicTitle?: string,
+    ) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      if (sessionActiveRef.current && clientRef.current) {
+        clientRef.current.sendTextMessage?.(trimmed);
+        return;
+      }
+
+      pendingTextRef.current = trimmed;
+      startSession(role, voice, topicPrompt, topicTitle, 'text');
+    },
+    [],
+  );
 
   const endSession = useCallback(() => {
     if (!sessionActiveRef.current) return;
@@ -639,6 +707,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
 
   return {
     phase,
+    sessionMode,
     isConnected: phase === 'connected',
     error,
     clearError,
@@ -664,6 +733,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     report,
     reportStatus,
     startSession,
+    sendTextMessage,
     endSession,
   };
 }

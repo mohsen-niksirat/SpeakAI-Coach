@@ -20,7 +20,6 @@ import {
   MicOff,
   PhoneOff,
   Settings,
-  Sparkles,
   Loader2,
   AlertTriangle,
   Info,
@@ -33,6 +32,8 @@ import {
   KeyRound,
   Server,
   BarChart3,
+  MessageSquareText,
+  Download,
 } from 'lucide-react';
 
 const PREFS_STORAGE_KEY = 'speakai_prefs';
@@ -51,10 +52,14 @@ const ALL_ROLES: { id: CoachRole; icon: string }[] = [
 
 function loadPrefs(): { role: CoachRole; voice: string; topicId: string; customTopic: string } {
   try {
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const urlRole = params?.get('role') as CoachRole | null;
+    const validUrlRole = ALL_ROLES.some((r) => r.id === urlRole) ? urlRole : null;
+
     const raw = localStorage.getItem(PREFS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return {
-      role: parsed.role || 'ielts_examiner',
+      role: validUrlRole || parsed.role || 'ielts_examiner',
       voice: parsed.voice || 'Aoede',
       topicId: parsed.topicId || 'free',
       customTopic: parsed.customTopic || '',
@@ -82,6 +87,54 @@ export default function App() {
   );
   const [showPhraseBooster, setShowPhraseBooster] = useState<boolean>(false);
   const [pinnedShadowText, setPinnedShadowText] = useState<string | null>(null);
+  const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
+  const [pwaInstallHint, setPwaInstallHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const checkStandalone = () => {
+      const standalone =
+        window.matchMedia?.('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        window.parent !== window; // hide install button when embedded inside Leitner iframe
+      setIsStandalone(standalone);
+    };
+    checkStandalone();
+
+    const onBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPwaPrompt(e);
+    };
+    const onAppInstalled = () => {
+      setDeferredPwaPrompt(null);
+      setIsStandalone(true);
+      setPwaInstallHint(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+    window.addEventListener('appinstalled', onAppInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', onAppInstalled);
+    };
+  }, []);
+
+  const handleInstallPwa = async () => {
+    if (deferredPwaPrompt) {
+      deferredPwaPrompt.prompt();
+      const choice = await deferredPwaPrompt.userChoice.catch(() => null);
+      if (choice?.outcome === 'accepted') {
+        setDeferredPwaPrompt(null);
+      }
+      return;
+    }
+    setPwaInstallHint(
+      lang === 'fa'
+        ? '📲 برای نصب برنامه: در مرورگر کروم/اج روی گزینه «Install App / Add to Home screen» در منوی بالا (⋮) بزنید، یا در آیفون دکمه Share و سپس «Add to Home Screen» را انتخاب کنید.'
+        : '📲 To install SpeakAI Coach: open your browser menu (⋮ or Share) and tap "Install App" or "Add to Home Screen".',
+    );
+  };
 
   useEffect(() => {
     try {
@@ -143,6 +196,7 @@ export default function App() {
 
   const {
     phase,
+    sessionMode,
     isConnected,
     error,
     clearError,
@@ -168,6 +222,7 @@ export default function App() {
     report,
     reportStatus,
     startSession,
+    sendTextMessage,
     endSession,
   } = useGeminiLive(settings, updateSettings);
 
@@ -208,14 +263,23 @@ export default function App() {
       ? buildCustomTopic(customTopicText)
       : availableTopics.find((tp) => tp.id === topicId) || PRACTICE_TOPICS[0];
 
+  const getActiveTopicTitle = () =>
+    selectedTopic.id === 'free'
+      ? undefined
+      : lang === 'fa'
+      ? selectedTopic.titleFa
+      : selectedTopic.title;
+
   const handleStart = () => {
-    const title =
-      selectedTopic.id === 'free'
-        ? undefined
-        : lang === 'fa'
-        ? selectedTopic.titleFa
-        : selectedTopic.title;
-    startSession(role, voice, selectedTopic.prompt, title);
+    startSession(role, voice, selectedTopic.prompt, getActiveTopicTitle(), 'voice');
+  };
+
+  const handleStartTextChat = () => {
+    startSession(role, voice, selectedTopic.prompt, getActiveTopicTitle(), 'text');
+  };
+
+  const handleSendText = (text: string) => {
+    sendTextMessage(text, role, voice, selectedTopic.prompt, getActiveTopicTitle());
   };
 
   const handleShadowFromTranscript = (text: string) => {
@@ -225,16 +289,17 @@ export default function App() {
 
   const minutes = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
   const seconds = String(sessionSeconds % 60).padStart(2, '0');
-  const showTranscript = isConnected || transcript.length > 0;
   const voiceCapableProviders = settings.providers.filter((p) => isVoiceCapable(p.kind));
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-between p-4 md:p-8 max-w-6xl mx-auto">
       <header className="flex items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-            <Sparkles className="w-4 h-4" />
-          </div>
+          <img
+            src="./icon.svg"
+            alt="SpeakAI Coach"
+            className="w-9 h-9 rounded-xl shadow-lg shadow-indigo-600/30 select-none"
+          />
           <div>
             <h1 className="text-base font-bold text-white tracking-tight">SpeakAI Coach</h1>
             <p className="text-[11px] text-slate-400">
@@ -244,6 +309,18 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          {!isStandalone && (
+            <button
+              onClick={handleInstallPwa}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/40 text-indigo-200 transition text-xs font-semibold"
+              title={lang === 'fa' ? 'نصب برنامه روی گوشی یا دسکتاپ (PWA)' : 'Install App (PWA)'}
+            >
+              <Download className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">
+                {lang === 'fa' ? 'نصب برنامه' : 'Install App'}
+              </span>
+            </button>
+          )}
           {voiceCapableProviders.length > 0 && (
             <div className="flex items-center gap-1.5 bg-surface border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
               <Server className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -421,15 +498,27 @@ export default function App() {
               isMuted={isMuted}
             />
 
-            <div className="mt-2 flex items-center gap-3 flex-wrap justify-center">
+            <div className="mt-2 flex items-center gap-2.5 flex-wrap justify-center">
               {!isConnected && phase !== 'connecting' ? (
                 <>
                   <button
                     onClick={handleStart}
-                    className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
+                    className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
                   >
                     <Mic className="w-4 h-4" />
                     {t('actions.start')}
+                  </button>
+                  <button
+                    onClick={handleStartTextChat}
+                    className="flex items-center gap-2 px-4 py-3.5 rounded-2xl bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/40 text-violet-200 font-semibold text-xs shadow-lg transition hover:scale-105 active:scale-95"
+                    title={
+                      lang === 'fa'
+                        ? 'شروع مکالمه متنی با مربی (بدون نیاز به میکروفون)'
+                        : 'Start a text chat session with the AI coach (no microphone required)'
+                    }
+                  >
+                    <MessageSquareText className="w-4 h-4 text-violet-400" />
+                    {lang === 'fa' ? 'چت متنی (Text Chat)' : 'Text Chat'}
                   </button>
                   {(stats.durationSeconds > 0 ||
                     transcript.length > 0 ||
@@ -460,18 +549,25 @@ export default function App() {
                 </button>
               ) : (
                 <>
-                  <button
-                    onClick={toggleMute}
-                    className={`flex items-center gap-2 px-4 py-3.5 rounded-2xl font-semibold text-xs border transition ${
-                      isMuted
-                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
-                        : 'bg-surface hover:bg-slate-800 text-slate-200 border-slate-700'
-                    }`}
-                    title={isMuted ? t('actions.unmute') : t('actions.mute')}
-                  >
-                    {isMuted ? <MicOff className="w-4 h-4 text-amber-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-                    {isMuted ? t('actions.unmute') : t('actions.mute')}
-                  </button>
+                  {sessionMode === 'voice' ? (
+                    <button
+                      onClick={toggleMute}
+                      className={`flex items-center gap-2 px-4 py-3.5 rounded-2xl font-semibold text-xs border transition ${
+                        isMuted
+                          ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+                          : 'bg-surface hover:bg-slate-800 text-slate-200 border-slate-700'
+                      }`}
+                      title={isMuted ? t('actions.unmute') : t('actions.mute')}
+                    >
+                      {isMuted ? <MicOff className="w-4 h-4 text-amber-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                      {isMuted ? t('actions.unmute') : t('actions.mute')}
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-violet-500/15 border border-violet-500/30 text-violet-300 text-xs font-medium">
+                      <MessageSquareText className="w-3.5 h-3.5 text-violet-400" />
+                      {lang === 'fa' ? 'حالت چت متنی فعال' : 'Text Chat Active'}
+                    </span>
+                  )}
                   <button
                     onClick={endSession}
                     className="flex items-center gap-2.5 px-5 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm shadow-xl shadow-rose-600/30 transition hover:scale-105 active:scale-95"
@@ -482,6 +578,13 @@ export default function App() {
                 </>
               )}
             </div>
+
+            {pwaInstallHint && (
+              <div className="mt-3 flex items-center gap-2 text-[11px] text-indigo-200 bg-indigo-500/15 border border-indigo-500/35 px-3 py-2 rounded-xl max-w-md text-start">
+                <Download className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span>{pwaInstallHint}</span>
+              </div>
+            )}
 
             {error && (
               <button
@@ -515,15 +618,17 @@ export default function App() {
           </div>
         </div>
 
-        {showTranscript && (
-          <div className="w-full">
-            <TranscriptPanel
-              entries={transcript}
-              sessionSeconds={sessionSeconds}
-              onShadowSentence={handleShadowFromTranscript}
-            />
-          </div>
-        )}
+        <div className="w-full">
+          <TranscriptPanel
+            entries={transcript}
+            sessionSeconds={sessionSeconds}
+            onShadowSentence={handleShadowFromTranscript}
+            onSendText={handleSendText}
+            isConnected={isConnected}
+            isConnecting={phase === 'connecting'}
+            sessionMode={sessionMode}
+          />
+        </div>
       </main>
 
       <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-800/80">
