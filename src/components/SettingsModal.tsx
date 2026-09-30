@@ -13,12 +13,14 @@ import {
 } from 'lucide-react';
 import {
   KIND_DEFAULTS,
+  PROVIDER_PRESETS,
+  detectPresetId,
   isVoiceCapable,
   voicesForKind,
   newProviderId,
   normalizeBaseUrl,
 } from '../services/providers';
-import { useT } from '../i18n/store';
+import { useT, useLang } from '../i18n/store';
 
 interface Props {
   isOpen: boolean;
@@ -33,27 +35,56 @@ interface Props {
 
 interface ProviderDraft {
   id: string | null;
+  presetId: string;
   name: string;
   kind: ProviderKind;
   baseUrl: string;
+  customBaseUrl: boolean;
   model: string;
+  customModel: boolean;
   reportModel: string;
+  customReportModel: boolean;
   keysText: string;
 }
 
 function emptyDraft(): ProviderDraft {
-  const d = KIND_DEFAULTS['gemini-live'];
-  return { id: null, name: '', kind: 'gemini-live', baseUrl: d.baseUrl, model: d.model, reportModel: d.reportModel, keysText: '' };
+  const preset = PROVIDER_PRESETS[0]; // Google Gemini by default
+  return {
+    id: null,
+    presetId: preset.id,
+    name: preset.defaultName,
+    kind: preset.kind,
+    baseUrl: preset.baseUrl,
+    customBaseUrl: false,
+    model: preset.voiceModels[0]?.value ?? KIND_DEFAULTS[preset.kind].model,
+    customModel: false,
+    reportModel: preset.reportModels[0]?.value ?? KIND_DEFAULTS[preset.kind].reportModel,
+    customReportModel: false,
+    keysText: '',
+  };
 }
 
 function draftFrom(provider: Provider): ProviderDraft {
+  const presetId = detectPresetId(provider);
+  const preset = PROVIDER_PRESETS.find((p) => p.id === presetId) ?? PROVIDER_PRESETS[0];
+  const isCustomPreset = preset.id === 'custom';
+  const hasVoiceModelInList = preset.voiceModels.some((m) => m.value === provider.model);
+  const effectiveReportModel = provider.reportModel || KIND_DEFAULTS[provider.kind].reportModel;
+  const hasReportModelInList = preset.reportModels.some((m) => m.value === effectiveReportModel);
+  const isDefaultUrl =
+    !isCustomPreset && normalizeBaseUrl(provider.baseUrl).toLowerCase() === normalizeBaseUrl(preset.baseUrl).toLowerCase();
+
   return {
     id: provider.id,
+    presetId: preset.id,
     name: provider.name,
     kind: provider.kind,
     baseUrl: provider.baseUrl,
+    customBaseUrl: !isDefaultUrl,
     model: provider.model,
-    reportModel: provider.reportModel ?? '',
+    customModel: isCustomPreset || !hasVoiceModelInList,
+    reportModel: effectiveReportModel,
+    customReportModel: isCustomPreset || !hasReportModelInList,
     keysText: provider.keys.join('\n'),
   };
 }
@@ -73,6 +104,7 @@ export const SettingsModal: React.FC<Props> = ({
   onSelectVoice,
 }) => {
   const t = useT();
+  const [lang] = useLang();
   const [draft, setDraft] = useState<ProviderDraft | null>(null);
 
   if (!isOpen) return null;
@@ -85,6 +117,28 @@ export const SettingsModal: React.FC<Props> = ({
 
   const patchDraft = (patch: Partial<ProviderDraft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
+  const handleSelectPreset = (nextPresetId: string) => {
+    const preset = PROVIDER_PRESETS.find((p) => p.id === nextPresetId) ?? PROVIDER_PRESETS[0];
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const prevPreset = PROVIDER_PRESETS.find((p) => p.id === prev.presetId);
+      const shouldUpdateName = !prev.name.trim() || prev.name === prevPreset?.defaultName;
+      const isCustom = preset.id === 'custom';
+      return {
+        ...prev,
+        presetId: preset.id,
+        name: shouldUpdateName ? preset.defaultName : prev.name,
+        kind: preset.kind,
+        baseUrl: preset.baseUrl,
+        customBaseUrl: isCustom,
+        model: preset.voiceModels[0]?.value ?? KIND_DEFAULTS[preset.kind].model,
+        customModel: isCustom,
+        reportModel: preset.reportModels[0]?.value ?? KIND_DEFAULTS[preset.kind].reportModel,
+        customReportModel: isCustom,
+      };
+    });
+  };
+
   const applySettings = (next: Partial<ProviderSettings>) => {
     onSettingsChange({ ...settings, ...next });
   };
@@ -95,12 +149,13 @@ export const SettingsModal: React.FC<Props> = ({
       .split('\n')
       .map((k) => k.trim())
       .filter(Boolean);
-    if (!draft.name.trim() || keys.length === 0 || !draft.model.trim()) return;
+    const finalName = draft.name.trim() || 'Provider';
+    if (keys.length === 0 || !draft.model.trim()) return;
 
     const existing = draft.id ? settings.providers.find((p) => p.id === draft.id) : undefined;
     const provider: Provider = {
       id: existing?.id ?? newProviderId(),
-      name: draft.name.trim(),
+      name: finalName,
       kind: draft.kind,
       baseUrl: normalizeBaseUrl(draft.baseUrl) || KIND_DEFAULTS[draft.kind].baseUrl,
       model: draft.model.trim(),
@@ -141,6 +196,10 @@ export const SettingsModal: React.FC<Props> = ({
     if (draft?.id === id) setDraft(null);
     onSettingsChange(next);
   };
+
+  const activePreset = draft
+    ? PROVIDER_PRESETS.find((p) => p.id === draft.presetId) ?? PROVIDER_PRESETS[0]
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -294,18 +353,151 @@ export const SettingsModal: React.FC<Props> = ({
               ))}
             </div>
 
-            {draft && (
-              <div className="mt-3 bg-slate-950/70 border border-indigo-500/30 rounded-xl p-3 space-y-2.5">
-                <div className="grid grid-cols-2 gap-2">
+            {draft && activePreset && (
+              <div className="mt-3 bg-slate-950/70 border border-indigo-500/30 rounded-xl p-3.5 space-y-3">
+                {/* Step 1: Provider Preset */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] text-indigo-300 font-semibold mb-1">
+                      {t('settings.preset')}
+                    </label>
+                    <select
+                      value={draft.presetId}
+                      onChange={(e) => handleSelectPreset(e.target.value)}
+                      className={selectClass}
+                    >
+                      {PROVIDER_PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {lang === 'fa' ? p.labelFa : p.labelEn}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-1">{t('settings.name')}</label>
                     <input
                       value={draft.name}
                       onChange={(e) => patchDraft({ name: e.target.value })}
-                      placeholder={t('settings.addName')}
+                      placeholder={activePreset.defaultName || t('settings.addName')}
                       className={selectClass}
                     />
                   </div>
+                </div>
+
+                {/* Step 2: API Keys / Token */}
+                <div>
+                  <label className="block text-[10px] text-indigo-300 font-semibold mb-1">
+                    {t('settings.keysLabel')}
+                  </label>
+                  <textarea
+                    value={draft.keysText}
+                    onChange={(e) => patchDraft({ keysText: e.target.value })}
+                    rows={2}
+                    placeholder={`${activePreset.keyPlaceholder}\n${activePreset.keyPlaceholder}`}
+                    className={selectClass + ' font-mono resize-none'}
+                  />
+                </div>
+
+                {/* Step 3: Selectable Voice Model & Report Model */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.model')}</label>
+                    {activePreset.voiceModels.length > 0 && (
+                      <select
+                        value={draft.customModel ? '__custom__' : draft.model}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            patchDraft({ customModel: true });
+                          } else {
+                            patchDraft({ model: e.target.value, customModel: false });
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        {activePreset.voiceModels.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                        <option value="__custom__">{t('settings.customModel')}</option>
+                      </select>
+                    )}
+                    {(draft.customModel || activePreset.voiceModels.length === 0) && (
+                      <input
+                        value={draft.model}
+                        onChange={(e) => patchDraft({ model: e.target.value })}
+                        placeholder={KIND_DEFAULTS[draft.kind].model}
+                        className={inputClass + (activePreset.voiceModels.length > 0 ? ' mt-1.5' : '')}
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.reportModel')}</label>
+                    {activePreset.reportModels.length > 0 && (
+                      <select
+                        value={draft.customReportModel ? '__custom__' : draft.reportModel}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            patchDraft({ customReportModel: true });
+                          } else {
+                            patchDraft({ reportModel: e.target.value, customReportModel: false });
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        {activePreset.reportModels.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                        <option value="__custom__">{t('settings.customModel')}</option>
+                      </select>
+                    )}
+                    {(draft.customReportModel || activePreset.reportModels.length === 0) && (
+                      <input
+                        value={draft.reportModel}
+                        onChange={(e) => patchDraft({ reportModel: e.target.value })}
+                        placeholder={KIND_DEFAULTS[draft.kind].reportModel}
+                        className={inputClass + (activePreset.reportModels.length > 0 ? ' mt-1.5' : '')}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 4: Base URL & Protocol (auto-selected from preset, with custom option) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.baseUrl')}</label>
+                    {activePreset.id !== 'custom' && (
+                      <select
+                        value={draft.customBaseUrl ? '__custom__' : activePreset.baseUrl}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            patchDraft({ customBaseUrl: true });
+                          } else {
+                            patchDraft({ baseUrl: activePreset.baseUrl, customBaseUrl: false });
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        <option value={activePreset.baseUrl}>
+                          {t('settings.defaultUrl', { url: activePreset.baseUrl })}
+                        </option>
+                        <option value="__custom__">{t('settings.customUrl')}</option>
+                      </select>
+                    )}
+                    {(draft.customBaseUrl || activePreset.id === 'custom') && (
+                      <input
+                        value={draft.baseUrl}
+                        onChange={(e) => patchDraft({ baseUrl: e.target.value })}
+                        placeholder={KIND_DEFAULTS[draft.kind].baseUrl}
+                        className={inputClass + (activePreset.id !== 'custom' ? ' mt-1.5' : '')}
+                      />
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-1">{t('settings.type')}</label>
                     <select
@@ -313,17 +505,10 @@ export const SettingsModal: React.FC<Props> = ({
                       onChange={(e) => {
                         const kind = e.target.value as ProviderKind;
                         const d = KIND_DEFAULTS[kind];
-                        setDraft((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                kind,
-                                baseUrl: d.baseUrl,
-                                model: d.model,
-                                reportModel: d.reportModel,
-                              }
-                            : prev,
-                        );
+                        patchDraft({
+                          kind,
+                          baseUrl: draft.customBaseUrl ? draft.baseUrl : d.baseUrl,
+                        });
                       }}
                       className={selectClass}
                     >
@@ -334,48 +519,6 @@ export const SettingsModal: React.FC<Props> = ({
                       ))}
                     </select>
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">{t('settings.baseUrl')}</label>
-                  <input
-                    value={draft.baseUrl}
-                    onChange={(e) => patchDraft({ baseUrl: e.target.value })}
-                    placeholder={KIND_DEFAULTS[draft.kind].baseUrl}
-                    className={inputClass}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.model')}</label>
-                    <input
-                      value={draft.model}
-                      onChange={(e) => patchDraft({ model: e.target.value })}
-                      placeholder={KIND_DEFAULTS[draft.kind].model}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">{t('settings.reportModel')}</label>
-                    <input
-                      value={draft.reportModel}
-                      onChange={(e) => patchDraft({ reportModel: e.target.value })}
-                      placeholder={KIND_DEFAULTS[draft.kind].reportModel}
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">{t('settings.keysLabel')}</label>
-                  <textarea
-                    value={draft.keysText}
-                    onChange={(e) => patchDraft({ keysText: e.target.value })}
-                    rows={3}
-                    placeholder={'sk-...\nsk-...\nsk-...'}
-                    className={selectClass + ' font-mono resize-none'}
-                  />
                 </div>
 
                 <div className="flex gap-2 pt-1">

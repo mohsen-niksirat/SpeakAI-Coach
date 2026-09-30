@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeBaseUrl, rotateKey, activeKey, newProviderId, isVoiceCapable } from './providers';
+import {
+  normalizeBaseUrl,
+  rotateKey,
+  activeKey,
+  newProviderId,
+  isVoiceCapable,
+  PROVIDER_PRESETS,
+  detectPresetId,
+} from './providers';
 import { Provider } from '../types';
 
 function provider(keys: string[], keyIndex = 0): Provider {
@@ -50,7 +58,7 @@ describe('activeKey', () => {
   });
 });
 
-describe('provider helpers', () => {
+describe('provider helpers & presets', () => {
   it('generates unique ids', () => {
     expect(newProviderId()).not.toBe(newProviderId());
   });
@@ -59,5 +67,22 @@ describe('provider helpers', () => {
     expect(isVoiceCapable('gemini-live')).toBe(true);
     expect(isVoiceCapable('openai-realtime')).toBe(true);
     expect(isVoiceCapable('openai-chat')).toBe(true);
+  });
+
+  it('provides Google Gemini as default preset with selectable voice and report models', () => {
+    const gemini = PROVIDER_PRESETS[0];
+    expect(gemini.id).toBe('google-gemini');
+    expect(gemini.baseUrl).toBe('https://generativelanguage.googleapis.com');
+    expect(gemini.voiceModels.length).toBeGreaterThanOrEqual(4);
+    expect(gemini.reportModels.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('detects preset id from provider kind and baseUrl', () => {
+    expect(detectPresetId({ kind: 'gemini-live', baseUrl: 'https://generativelanguage.googleapis.com' })).toBe(
+      'google-gemini',
+    );
+    expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://openrouter.ai/api/v1' })).toBe('openrouter');
+    expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://api.groq.com/openai/v1' })).toBe('groq');
+    expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://my-proxy.local/v1' })).toBe('custom');
   });
 });
