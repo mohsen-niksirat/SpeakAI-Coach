@@ -19,6 +19,7 @@ function readInitialLang(): Lang {
 let lang: Lang = readInitialLang();
 
 function applyHtml() {
+  if (typeof document === 'undefined') return;
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
 }

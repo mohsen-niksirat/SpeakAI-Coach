@@ -67,7 +67,22 @@ export class OpenAIRealtimeClient implements VoiceClient {
     };
 
     this.ws.onmessage = (event) => {
-      this.handleServerMessage(event.data);
+      const raw = event.data;
+      if (typeof raw === 'string') {
+        this.handleServerMessage(raw);
+      } else if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+        raw
+          .text()
+          .then((text) => {
+            if (!this.disposed) this.handleServerMessage(text);
+          })
+          .catch((err) => {
+            console.error('Error reading realtime WS Blob payload:', err);
+          });
+      } else if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+        const text = new TextDecoder().decode(raw);
+        this.handleServerMessage(text);
+      }
     };
 
     this.ws.onerror = () => {

@@ -12,15 +12,16 @@ import { ProviderError, asProviderError, classifyCloseCode, classifyHttpStatus }
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
 const MAX_MODEL_HOPS = 5;
-const SOCKET_WATCHDOG_MS = 7000;
+const SOCKET_WATCHDOG_MS = 12000;
 
 // Used when the models list cannot be fetched; newest first.
 const HARDCODED_LIVE_MODELS = [
-  'gemini-3.1-flash-live-preview',
   'gemini-2.5-flash-native-audio-latest',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-3.1-flash-live-preview',
+  'gemini-2.0-flash-live-001',
   'gemini-live-2.5-flash',
   'gemini-live-2.5-flash-preview',
-  'gemini-2.0-flash-live-001',
 ];
 
 function geminiType(value: string): string {
@@ -57,7 +58,7 @@ function stripModelsPrefix(model: string): string {
   return model.replace(/^models\//, '');
 }
 
-const MODEL_ERROR_RE = /not found|not supported for bidi|unknown model|does not exist/i;
+const MODEL_ERROR_RE = /not found|not supported|unknown model|does not exist|invalid model|unavailable/i;
 
 export class GeminiLiveClient implements VoiceClient {
   private ws: WebSocket | null = null;
@@ -73,12 +74,13 @@ export class GeminiLiveClient implements VoiceClient {
   private modelHops = 0;
   private stallRetries = 0;
   private socketOpened = false;
-  private socketTimer: number | null = null;
+  private socketTimer: ReturnType<typeof setTimeout> | null = null;
   private candidates: string[] = [];
   private setupDone = false;
   private effectiveModel = '';
   private notices: string[] = [];
   private disposed = false;
+  private messageQueue: Promise<void> = Promise.resolve();
 
   constructor(
     callbacks: VoiceClientCallbacks,
@@ -152,8 +154,25 @@ export class GeminiLiveClient implements VoiceClient {
       const bidi = entries.filter((m) => m.methods.includes('bidiGenerateContent')).map((m) => m.name);
       const liveNamed = entries.filter((m) => /live|native-audio/i.test(m.name)).map((m) => m.name);
       const pool = bidi.length > 0 ? bidi : liveNamed;
-      for (const name of [...pool, ...HARDCODED_LIVE_MODELS]) {
-        if (name && !this.candidates.includes(name)) this.candidates.push(name);
+
+      // If the API explicitly tells us which models support bidiGenerateContent and the
+      // configured model is not among them, start directly with the first supported bidi model.
+      if (bidi.length > 0 && !bidi.includes(configured)) {
+        this.candidates = [];
+        for (const name of [...bidi, configured, ...HARDCODED_LIVE_MODELS]) {
+          if (name && !this.candidates.includes(name)) this.candidates.push(name);
+        }
+        this.effectiveModel = this.candidates[0];
+        this.notices.push(
+          t('notice.modelFallback', {
+            old: configured,
+            new: this.effectiveModel,
+          }),
+        );
+      } else {
+        for (const name of [...pool, ...HARDCODED_LIVE_MODELS]) {
+          if (name && !this.candidates.includes(name)) this.candidates.push(name);
+        }
       }
     } catch {
       for (const name of HARDCODED_LIVE_MODELS) {
@@ -202,7 +221,26 @@ export class GeminiLiveClient implements VoiceClient {
     };
 
     this.ws.onmessage = (event) => {
-      this.handleServerMessage(event.data);
+      const raw = event.data;
+      this.messageQueue = this.messageQueue
+        .then(async () => {
+          if (this.disposed) return;
+          if (typeof raw === 'string') {
+            this.handleServerMessage(raw);
+          } else if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+            const text = await raw.text();
+            if (!this.disposed) this.handleServerMessage(text);
+          } else if (raw instanceof ArrayBuffer) {
+            const text = new TextDecoder().decode(raw);
+            if (!this.disposed) this.handleServerMessage(text);
+          } else if (ArrayBuffer.isView(raw)) {
+            const text = new TextDecoder().decode(raw);
+            if (!this.disposed) this.handleServerMessage(text);
+          }
+        })
+        .catch((err) => {
+          console.error('Error reading live WS payload:', err);
+        });
     };
 
     this.ws.onerror = () => {
@@ -214,7 +252,7 @@ export class GeminiLiveClient implements VoiceClient {
     this.ws.onclose = (event) => {
       this.clearSocketTimer();
       if (this.disposed) return;
-      if (!this.setupDone && event.code === 1008) {
+      if (!this.setupDone && (event.code === 1008 || event.code === 1007)) {
         const reason = event.reason || '';
         // Model rejected → jump to the next candidate (fresh full setup).
         if (
@@ -241,6 +279,21 @@ export class GeminiLiveClient implements VoiceClient {
           this.restartSocket();
           return;
         }
+        // Even bare setup failed on this model → try the next model candidate.
+        if (this.modelIdx + 1 < this.candidates.length && this.modelHops < MAX_MODEL_HOPS) {
+          this.modelHops += 1;
+          this.modelIdx += 1;
+          this.effectiveModel = this.candidates[this.modelIdx];
+          this.stage = 0;
+          this.notices.push(
+            t('notice.modelFallback', {
+              old: this.candidates[this.modelIdx - 1],
+              new: this.effectiveModel,
+            }),
+          );
+          this.restartSocket();
+          return;
+        }
       }
       this.callbacks.onClose(event.code, event.reason || '', classifyCloseCode(event.code, event.reason || ''));
     };
@@ -248,7 +301,7 @@ export class GeminiLiveClient implements VoiceClient {
     // If the socket opens but setupComplete never arrives, the VPN is
     // likely stalling the live connection — fail fast with a clear cause.
     this.clearSocketTimer();
-    this.socketTimer = window.setTimeout(() => {
+    this.socketTimer = setTimeout(() => {
       if (this.disposed || this.setupDone) return;
       if (this.stallRetries < 1) {
         this.stallRetries += 1;
@@ -275,8 +328,8 @@ export class GeminiLiveClient implements VoiceClient {
 
     if (this.stage <= 2) {
       setup.generationConfig = {
-        responseModalities: ['audio'],
-        ...(this.stage <= 1
+        responseModalities: ['AUDIO'],
+        ...(this.stage <= 1 && this.voice
           ? {
               speechConfig: {
                 voiceConfig: {
@@ -290,8 +343,8 @@ export class GeminiLiveClient implements VoiceClient {
       };
     }
     if (this.stage <= 1) {
-      setup.inputAudioTranscription = { languageCodes: ['en'] };
-      setup.outputAudioTranscription = { languageCodes: ['en'] };
+      setup.inputAudioTranscription = {};
+      setup.outputAudioTranscription = {};
     }
     if (this.stage === 0) {
       setup.tools = [
@@ -304,17 +357,21 @@ export class GeminiLiveClient implements VoiceClient {
     this.ws.send(JSON.stringify({ setup }));
   }
 
+  setMuted(muted: boolean) {
+    if (muted && this.ws && this.ws.readyState === WebSocket.OPEN && this.setupDone) {
+      this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    }
+  }
+
   sendAudioChunk(base64Pcm16: string) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupDone) return;
 
     const realtimeInput = {
       realtimeInput: {
-        mediaChunks: [
-          {
-            mimeType: 'audio/pcm;rate=16000',
-            data: base64Pcm16,
-          },
-        ],
+        audio: {
+          mimeType: 'audio/pcm;rate=16000',
+          data: base64Pcm16,
+        },
       },
     };
 
@@ -341,23 +398,31 @@ export class GeminiLiveClient implements VoiceClient {
         if (combined) this.callbacks.onNotice?.(combined);
         this.notices = [];
         this.callbacks.onSetupComplete();
-        this.ws?.send(
-          JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: 'user',
-                  parts: [
-                    {
-                      text: '(The speaking session has just begun. Greet the student warmly in English according to your persona and ask your opening question.)',
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
-            },
-          }),
-        );
+        const greetingPrompt =
+          'Hello! Please greet me briefly according to your persona and ask your opening question.';
+        if (/^gemini-3/i.test(this.effectiveModel)) {
+          this.ws?.send(
+            JSON.stringify({
+              realtimeInput: {
+                text: greetingPrompt,
+              },
+            }),
+          );
+        } else {
+          this.ws?.send(
+            JSON.stringify({
+              clientContent: {
+                turns: [
+                  {
+                    role: 'user',
+                    parts: [{ text: greetingPrompt }],
+                  },
+                ],
+                turnComplete: true,
+              },
+            }),
+          );
+        }
         return;
       }
 

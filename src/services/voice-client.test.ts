@@ -89,3 +89,135 @@ describe('PRACTICE_TOPICS & buildCustomTopic', () => {
     expect(getSuggestedCategoriesForRole('job_interview')).toContain('interview');
   });
 });
+
+describe('GeminiLiveClient binary WebSocket frame decoding', () => {
+  it('decodes Blob and ArrayBuffer setupComplete and serverContent frames from Google BidiGenerateContent', async () => {
+    const { GeminiLiveClient } = await import('./gemini-live-client');
+
+    const sentPayloads: string[] = [];
+    let activeSocket: {
+      readyState: number;
+      onopen: (() => void) | null;
+      onmessage: ((ev: { data: unknown }) => void) | null;
+      onerror: (() => void) | null;
+      onclose: ((ev: { code: number; reason: string }) => void) | null;
+      send: (data: string) => void;
+      close: () => void;
+    } | null = null;
+
+    const origFetch = globalThis.fetch;
+    const origWS = globalThis.WebSocket;
+
+    try {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: 'models/gemini-2.5-flash-native-audio-latest',
+                supportedGenerationMethods: ['bidiGenerateContent'],
+              },
+            ],
+          }),
+          { status: 200 },
+        )) as typeof fetch;
+
+      class MockWebSocket {
+        static OPEN = 1;
+        readyState = 1;
+        onopen: (() => void) | null = null;
+        onmessage: ((ev: { data: unknown }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onclose: ((ev: { code: number; reason: string }) => void) | null = null;
+        constructor() {
+          activeSocket = this;
+        }
+        send(data: string) {
+          sentPayloads.push(data);
+        }
+        close() {}
+      }
+
+      globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+
+      let setupCompleted = false;
+      const receivedAudio: string[] = [];
+      const transcripts: Array<{ speaker: string; text: string }> = [];
+
+      const client = new GeminiLiveClient(
+        {
+          onSetupComplete: () => {
+            setupCompleted = true;
+          },
+          onAudioData: (b64) => receivedAudio.push(b64),
+          onInterrupted: () => {},
+          onTranscript: (speaker, text) => transcripts.push({ speaker, text }),
+          onVocabDiscovered: () => {},
+          onFeedbackGiven: () => {},
+          onError: (err) => {
+            throw err;
+          },
+          onClose: () => {},
+        },
+        {
+          id: 'p-gemini',
+          name: 'Google Gemini',
+          kind: 'gemini-live',
+          baseUrl: 'https://generativelanguage.googleapis.com',
+          model: 'gemini-2.5-flash-native-audio-latest',
+          keys: ['AIzaTestKey'],
+          keyIndex: 0,
+        },
+        'AIzaTestKey',
+        'ielts_examiner',
+        'Aoede',
+      );
+
+      client.connect();
+
+      // Wait for preflight() promise microtasks to open the socket
+      for (let i = 0; i < 10 && !activeSocket; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(activeSocket).not.toBeNull();
+
+      activeSocket!.onopen?.();
+      expect(sentPayloads.length).toBe(1);
+      const setupMsg = JSON.parse(sentPayloads[0]);
+      expect(setupMsg.setup.model).toBe('models/gemini-2.5-flash-native-audio-latest');
+      expect(setupMsg.setup.inputAudioTranscription).toEqual({});
+      expect(setupMsg.setup.outputAudioTranscription).toEqual({});
+
+      // Simulate Google sending setupComplete as a binary Blob (browser behavior)
+      const setupBlob = new Blob([JSON.stringify({ setupComplete: {} })], {
+        type: 'application/json',
+      });
+      activeSocket!.onmessage?.({ data: setupBlob });
+
+      // Simulate audio + transcript arriving as an ArrayBuffer frame
+      const contentBytes = new TextEncoder().encode(
+        JSON.stringify({
+          serverContent: {
+            modelTurn: {
+              parts: [{ inlineData: { mimeType: 'audio/pcm', data: 'AAAA' } }],
+            },
+            outputTranscription: { text: 'Hello! Let us begin Part 1.', finished: true },
+          },
+        }),
+      );
+      activeSocket!.onmessage?.({ data: contentBytes.buffer });
+
+      // Allow async Blob.text() and messageQueue to settle
+      await new Promise((r) => setTimeout(r, 25));
+
+      expect(setupCompleted).toBe(true);
+      expect(receivedAudio).toEqual(['AAAA']);
+      expect(transcripts).toEqual([{ speaker: 'model', text: 'Hello! Let us begin Part 1.' }]);
+
+      client.disconnect();
+    } finally {
+      globalThis.fetch = origFetch;
+      globalThis.WebSocket = origWS;
+    }
+  });
+});
