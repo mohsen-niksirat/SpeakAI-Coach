@@ -11,6 +11,8 @@ import {
   Mic,
   FileText,
   KeyRound,
+  Activity,
+  Loader2,
 } from 'lucide-react';
 import {
   KIND_DEFAULTS,
@@ -24,6 +26,13 @@ import {
   normalizeBaseUrl,
   sanitizeProvider,
 } from '../services/providers';
+import {
+  KeyTestResult,
+  ProviderTestResult,
+  formatKeyPreview,
+  testProviderConnection,
+  testSingleKey,
+} from '../services/connection-tester';
 import { useT, useLang } from '../i18n/store';
 
 interface Props {
@@ -117,15 +126,96 @@ export const SettingsModal: React.FC<Props> = ({
   const t = useT();
   const [lang] = useLang();
   const [draft, setDraft] = useState<ProviderDraft | null>(null);
+  const [testingProviders, setTestingProviders] = useState<Record<string, boolean>>({});
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, ProviderTestResult>>({});
+  const [testingDraftKeys, setTestingDraftKeys] = useState<Record<string, boolean>>({});
+  const [draftKeyResults, setDraftKeyResults] = useState<Record<string, KeyTestResult>>({});
 
   useEffect(() => {
     if (isOpen && initialPresetId) {
       setDraft(emptyDraft(initialPresetId));
+      setDraftKeyResults({});
       onConsumeInitialPreset?.();
     }
   }, [isOpen, initialPresetId, onConsumeInitialPreset]);
 
   if (!isOpen) return null;
+
+  const handleTestSavedProvider = async (provider: Provider) => {
+    setTestingProviders((prev) => ({ ...prev, [provider.id]: true }));
+    try {
+      const res = await testProviderConnection(provider);
+      setProviderTestResults((prev) => ({ ...prev, [provider.id]: res }));
+    } finally {
+      setTestingProviders((prev) => ({ ...prev, [provider.id]: false }));
+    }
+  };
+
+  const handleTestSavedSingleKey = async (provider: Provider, key: string, keyIdx: number) => {
+    const stateKey = `${provider.id}:${keyIdx}`;
+    setTestingDraftKeys((prev) => ({ ...prev, [stateKey]: true }));
+    try {
+      const single = await testSingleKey(provider, key);
+      setProviderTestResults((prev) => {
+        const existing = prev[provider.id]?.results ? [...prev[provider.id].results] : [];
+        existing[keyIdx] = single;
+        const filtered = existing.filter(Boolean);
+        return {
+          ...prev,
+          [provider.id]: {
+            providerId: provider.id,
+            ok: filtered.some((r) => r.ok),
+            warning: filtered.some((r) => r.warning),
+            results: filtered,
+          },
+        };
+      });
+    } finally {
+      setTestingDraftKeys((prev) => ({ ...prev, [stateKey]: false }));
+    }
+  };
+
+  const buildDraftTempProvider = (): Provider | null => {
+    if (!draft) return null;
+    const keys = draft.keysText
+      .split('\n')
+      .map((k) => cleanApiKey(k))
+      .filter(Boolean);
+    return sanitizeProvider({
+      id: draft.id || 'draft-temp',
+      name: draft.name.trim() || 'Draft',
+      kind: draft.kind,
+      baseUrl: normalizeBaseUrl(draft.baseUrl) || KIND_DEFAULTS[draft.kind].baseUrl,
+      model: draft.model.trim() || KIND_DEFAULTS[draft.kind].model,
+      reportModel: draft.reportModel.trim() || undefined,
+      keys,
+      keyIndex: 0,
+    });
+  };
+
+  const handleTestDraftKey = async (rawKey: string, idx: number) => {
+    const tempProvider = buildDraftTempProvider();
+    if (!tempProvider) return;
+    const stateKey = `draft:${idx}`;
+    setTestingDraftKeys((prev) => ({ ...prev, [stateKey]: true }));
+    try {
+      const res = await testSingleKey(tempProvider, rawKey);
+      setDraftKeyResults((prev) => ({ ...prev, [stateKey]: res }));
+    } finally {
+      setTestingDraftKeys((prev) => ({ ...prev, [stateKey]: false }));
+    }
+  };
+
+  const handleTestAllDraftKeys = async () => {
+    if (!draft) return;
+    const keys = draft.keysText
+      .split('\n')
+      .map((k) => cleanApiKey(k))
+      .filter(Boolean);
+    for (let i = 0; i < keys.length; i++) {
+      await handleTestDraftKey(keys[i], i);
+    }
+  };
 
   const voiceProviders = settings.providers.filter((p) => isVoiceCapable(p.kind));
   const activeVoice = settings.providers.find((p) => p.id === settings.voiceProviderId) ?? null;
@@ -137,6 +227,7 @@ export const SettingsModal: React.FC<Props> = ({
 
   const handleSelectPreset = (nextPresetId: string) => {
     const preset = PROVIDER_PRESETS.find((p) => p.id === nextPresetId) ?? PROVIDER_PRESETS[0];
+    setDraftKeyResults({});
     setDraft((prev) => {
       if (!prev) return prev;
       const prevPreset = PROVIDER_PRESETS.find((p) => p.id === prev.presetId);
@@ -158,6 +249,7 @@ export const SettingsModal: React.FC<Props> = ({
   };
 
   const handleKeysChange = (keysText: string) => {
+    setDraftKeyResults({});
     setDraft((prev) => {
       if (!prev) return prev;
       const firstKey = keysText
@@ -244,6 +336,7 @@ export const SettingsModal: React.FC<Props> = ({
 
     onSettingsChange(next);
     setDraft(null);
+    setDraftKeyResults({});
   };
 
   const handleDelete = (id: string) => {
@@ -406,10 +499,13 @@ export const SettingsModal: React.FC<Props> = ({
                     ? `${firstK.slice(0, 6)}...${firstK.slice(-4)}`
                     : firstK || (lang === 'fa' ? 'بدون کلید' : 'No key');
                 const isGeminiKeyInvalid = p.kind === 'gemini-live' && !/^AIza/i.test(firstK);
+                const isTesting = !!testingProviders[p.id];
+                const testResult = providerTestResults[p.id];
+
                 return (
                   <div
                     key={p.id}
-                    className={`flex items-center justify-between gap-2 bg-slate-900 border rounded-xl px-3 py-2 ${
+                    className={`bg-slate-900 border rounded-xl px-3 py-2.5 space-y-2 ${
                       isGeminiKeyInvalid
                         ? 'border-amber-500/60 bg-amber-950/15'
                         : isActiveVoice
@@ -419,62 +515,125 @@ export const SettingsModal: React.FC<Props> = ({
                         : 'border-slate-800'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs font-semibold text-slate-200 truncate">{p.name}</span>
-                        {isActiveVoice && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
-                            {lang === 'fa' ? '✓ فعال' : '✓ Active'}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-semibold text-slate-200 truncate">{p.name}</span>
+                          {isActiveVoice && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                              {lang === 'fa' ? '✓ فعال' : '✓ Active'}
+                            </span>
+                          )}
+                          <span
+                            className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono shrink-0 ${
+                              isGeminiKeyInvalid
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            🔑 {keyPreview}
                           </span>
-                        )}
-                        <span
-                          className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono shrink-0 ${
-                            isGeminiKeyInvalid
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          🔑 {keyPreview}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {t(`kind.${p.kind}`)} •{' '}
-                        {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
-                        {p.model}
-                      </div>
-                      {isGeminiKeyInvalid && (
-                        <div className="text-[10px] text-amber-400 mt-0.5">
-                          {lang === 'fa'
-                            ? '⚠️ کلید ذخیره‌شده با AIzaSy شروع نمی‌شود؛ روی مداد (ویرایش) بزنید و کلید صحیح جمینای را وارد کنید.'
-                            : '⚠️ Stored key does not start with AIzaSy; click Edit to enter your Gemini key.'}
                         </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {!isActiveVoice && isVoiceCapable(p.kind) && (
+                        <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                          {t(`kind.${p.kind}`)} •{' '}
+                          {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
+                          {p.model}
+                        </div>
+                        {isGeminiKeyInvalid && (
+                          <div className="text-[10px] text-amber-400 mt-0.5">
+                            {lang === 'fa'
+                              ? '⚠️ کلید ذخیره‌شده با AIzaSy شروع نمی‌شود؛ روی مداد (ویرایش) بزنید و کلید صحیح جمینای را وارد کنید.'
+                              : '⚠️ Stored key does not start with AIzaSy; click Edit to enter your Gemini key.'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
                         <button
                           type="button"
-                          onClick={() => applySettings({ voiceProviderId: p.id, reportProviderId: p.id })}
-                          className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/40 transition"
+                          onClick={() => handleTestSavedProvider(p)}
+                          disabled={isTesting}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-200 border border-cyan-500/40 transition"
+                          title={lang === 'fa' ? 'تست اتصال و اعتبار کلید' : 'Test key & connection'}
                         >
-                          {lang === 'fa' ? 'انتخاب' : 'Use'}
+                          {isTesting ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-cyan-300" />
+                          ) : (
+                            <Activity className="w-3 h-3 text-cyan-400" />
+                          )}
+                          <span>{lang === 'fa' ? (isTesting ? 'در حال تست...' : 'تست اتصال') : isTesting ? 'Testing...' : 'Test'}</span>
                         </button>
-                      )}
-                      <button
-                        onClick={() => setDraft(draftFrom(p))}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                        title={t('settings.edit')}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
-                        title={t('settings.delete')}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        {!isActiveVoice && isVoiceCapable(p.kind) && (
+                          <button
+                            type="button"
+                            onClick={() => applySettings({ voiceProviderId: p.id, reportProviderId: p.id })}
+                            className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/40 transition"
+                          >
+                            {lang === 'fa' ? 'انتخاب' : 'Use'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setDraft(draftFrom(p))}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                          title={t('settings.edit')}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(p.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                          title={t('settings.delete')}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
+
+                    {p.keys.length > 1 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1 border-t border-slate-800/80">
+                        {p.keys.map((k, kIdx) => {
+                          const singleBusy = !!testingDraftKeys[`${p.id}:${kIdx}`];
+                          return (
+                            <button
+                              key={`${p.id}-k-${kIdx}`}
+                              type="button"
+                              disabled={singleBusy}
+                              onClick={() => handleTestSavedSingleKey(p, k, kIdx)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-300 font-mono transition"
+                            >
+                              {singleBusy ? (
+                                <Loader2 className="w-2.5 h-2.5 animate-spin text-cyan-400" />
+                              ) : (
+                                <Activity className="w-2.5 h-2.5 text-cyan-400" />
+                              )}
+                              <span>#{kIdx + 1} {formatKeyPreview(k)}</span>
+                              <span className="text-cyan-300 font-sans">
+                                {lang === 'fa' ? '(تست)' : '(Test)'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {testResult && testResult.results.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                        {testResult.results.map((r, rIdx) => (
+                          <div
+                            key={`${p.id}-res-${rIdx}`}
+                            className={`text-[10px] px-2.5 py-1.5 rounded-lg border leading-relaxed ${
+                              r.ok && !r.warning
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                : r.ok && r.warning
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                                : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                            }`}
+                          >
+                            <span className="font-mono opacity-80">[{r.keyPreview}]</span>{' '}
+                            {lang === 'fa' ? r.messageFa : r.messageEn}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -512,11 +671,27 @@ export const SettingsModal: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Step 2: API Keys / Token */}
+                {/* Step 2: API Keys / Token + Inline Test Connection */}
                 <div>
-                  <label className="block text-[10px] text-indigo-300 font-semibold mb-1">
-                    {t('settings.keysLabel')}
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-[10px] text-indigo-300 font-semibold">
+                      {t('settings.keysLabel')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleTestAllDraftKeys}
+                      disabled={
+                        !draft.keysText
+                          .split('\n')
+                          .map((k) => cleanApiKey(k))
+                          .some(Boolean)
+                      }
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-40 text-cyan-200 border border-cyan-500/40 transition"
+                    >
+                      <Activity className="w-3 h-3 text-cyan-400" />
+                      <span>{lang === 'fa' ? '⚡ تست اتصال کلیدها' : '⚡ Test Key Connection'}</span>
+                    </button>
+                  </div>
                   <textarea
                     value={draft.keysText}
                     onChange={(e) => handleKeysChange(e.target.value)}
@@ -524,6 +699,57 @@ export const SettingsModal: React.FC<Props> = ({
                     placeholder={`${activePreset.keyPlaceholder}\n${activePreset.keyPlaceholder}`}
                     className={selectClass + ' font-mono resize-none'}
                   />
+                  {(() => {
+                    const draftKeys = draft.keysText
+                      .split('\n')
+                      .map((k) => cleanApiKey(k))
+                      .filter(Boolean);
+                    if (draftKeys.length === 0) return null;
+                    return (
+                      <div className="mt-2 space-y-1.5">
+                        {draftKeys.map((k, kIdx) => {
+                          const stateKey = `draft:${kIdx}`;
+                          const isBusy = !!testingDraftKeys[stateKey];
+                          const res = draftKeyResults[stateKey];
+                          return (
+                            <div key={stateKey} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-1">
+                                <span className="text-[10px] font-mono text-slate-300 truncate">
+                                  🔑 #{kIdx + 1}: {formatKeyPreview(k)}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleTestDraftKey(k, kIdx)}
+                                  className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-200 border border-cyan-500/30 transition shrink-0"
+                                >
+                                  {isBusy ? (
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin text-cyan-300" />
+                                  ) : (
+                                    <Activity className="w-2.5 h-2.5 text-cyan-400" />
+                                  )}
+                                  <span>{lang === 'fa' ? (isBusy ? 'در حال تست...' : 'تست اتصال') : isBusy ? 'Testing...' : 'Test'}</span>
+                                </button>
+                              </div>
+                              {res && (
+                                <div
+                                  className={`text-[10px] px-2.5 py-1.5 rounded-lg border leading-relaxed ${
+                                    res.ok && !res.warning
+                                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                      : res.ok && res.warning
+                                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                                      : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                                  }`}
+                                >
+                                  {lang === 'fa' ? res.messageFa : res.messageEn}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Step 3: Selectable Voice Model & Report Model */}
