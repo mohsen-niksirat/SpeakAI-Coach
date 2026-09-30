@@ -32,6 +32,7 @@ import {
   GraduationCap,
   KeyRound,
   Server,
+  BarChart3,
 } from 'lucide-react';
 
 const PREFS_STORAGE_KEY = 'speakai_prefs';
@@ -422,13 +423,33 @@ export default function App() {
 
             <div className="mt-2 flex items-center gap-3 flex-wrap justify-center">
               {!isConnected && phase !== 'connecting' ? (
-                <button
-                  onClick={handleStart}
-                  className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
-                >
-                  <Mic className="w-4 h-4" />
-                  {t('actions.start')}
-                </button>
+                <>
+                  <button
+                    onClick={handleStart}
+                    className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
+                  >
+                    <Mic className="w-4 h-4" />
+                    {t('actions.start')}
+                  </button>
+                  {(stats.durationSeconds > 0 ||
+                    transcript.length > 0 ||
+                    report !== null ||
+                    historyEntries.length > 0) && (
+                    <button
+                      onClick={() => {
+                        if (stats.durationSeconds > 0 || transcript.length > 0 || report !== null) {
+                          setShowSummary(true);
+                        } else if (historyEntries.length > 0) {
+                          openHistoricalReport(historyEntries[0]);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-semibold text-xs shadow-lg transition hover:scale-105 active:scale-95"
+                    >
+                      <BarChart3 className="w-4 h-4 text-emerald-400" />
+                      {lang === 'fa' ? 'مشاهده کارنامه و نمودار ارزیابی' : 'View Assessment Report'}
+                    </button>
+                  )}
+                </>
               ) : phase === 'connecting' ? (
                 <button
                   disabled
@@ -549,6 +570,9 @@ export default function App() {
         stats={stats}
         report={report}
         reportStatus={reportStatus}
+        transcript={transcript}
+        feedbackLogs={feedbackLogs}
+        vocabCards={vocabCards}
       />
     </div>
   );

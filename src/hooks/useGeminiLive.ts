@@ -113,6 +113,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const captureStartedRef = useRef(false);
   const secondsRef = useRef(0);
   const sessionVocabCountRef = useRef(0);
+  const sessionVocabCardsRef = useRef<VocabCard[]>([]);
   const activeRoleRef = useRef<CoachRole>('ielts_examiner');
   const activeTopicTitleRef = useRef<string | undefined>(undefined);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
@@ -192,6 +193,113 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     [onSettingsChange],
   );
 
+  const recordHistoryItem = useCallback(
+    (
+      durationSeconds: number,
+      wordsRecordedCount: number,
+      correctionsCount: number,
+      reportObj: SessionReport,
+      status: 'ready' | 'failed',
+      sessionTranscript: TranscriptEntry[],
+      sessionFeedback: FeedbackLog[],
+      sessionVocab: VocabCard[],
+    ) => {
+      const entry: SessionHistoryEntry = {
+        id: Math.random().toString(36).slice(2, 10),
+        dateIso: new Date().toISOString(),
+        role: activeRoleRef.current,
+        topicTitle: activeTopicTitleRef.current,
+        durationSeconds,
+        wordsRecordedCount,
+        correctionsCount,
+        overallBand: reportObj.overallBand,
+        reportStatus: status,
+        report: reportObj,
+        transcript: sessionTranscript.slice(-60),
+        feedbackLogs: sessionFeedback.slice(0, 40),
+        vocabCards: sessionVocab.slice(0, 30),
+      };
+      setHistoryEntries((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ITEMS));
+    },
+    [],
+  );
+
+  const finalizeSessionAssessment = useCallback(() => {
+    const seconds = secondsRef.current;
+    const vocabCount = sessionVocabCountRef.current;
+    const entries = transcriptRef.current;
+    const corrections = feedbackLogsRef.current;
+    const sessionVocab = sessionVocabCardsRef.current;
+    const reportProvider = reportProviderRef.current;
+
+    const fallbackBand = Math.round(heuristicBand(corrections.length, vocabCount) * 2) / 2;
+    const fallbackReport = buildFallbackReport(fallbackBand);
+
+    setShowSummary(true);
+
+    if (entries.length === 0 || !reportProvider) {
+      setReport(fallbackReport);
+      setReportStatus('failed');
+      if (seconds > 0 || entries.length > 0 || corrections.length > 0 || vocabCount > 0) {
+        recordHistoryItem(
+          seconds,
+          vocabCount,
+          corrections.length,
+          fallbackReport,
+          'failed',
+          entries,
+          corrections,
+          sessionVocab,
+        );
+      }
+      return;
+    }
+
+    const transcriptText = entries
+      .map((e) => `${e.role === 'user' ? 'Speaker' : 'Coach'}: ${e.text}`)
+      .join('\n');
+
+    setReport(fallbackReport);
+    setReportStatus('loading');
+
+    const reportSessionSeq = sessionSeqRef.current;
+    generateSessionReport(reportProvider, transcriptText, corrections)
+      .then((result) => {
+        if (reportSessionSeq !== sessionSeqRef.current) return; // a new session owns the UI now
+        setReport(result.report);
+        setReportStatus('ready');
+        recordHistoryItem(
+          seconds,
+          vocabCount,
+          corrections.length,
+          result.report,
+          'ready',
+          entries,
+          corrections,
+          sessionVocab,
+        );
+        if (result.usedKeyIndex !== reportProvider.keyIndex) {
+          persistProviderKey({ ...reportProvider, keyIndex: result.usedKeyIndex });
+        }
+      })
+      .catch((err) => {
+        if (reportSessionSeq !== sessionSeqRef.current) return;
+        console.error('Session report generation failed:', err);
+        setReport(fallbackReport);
+        setReportStatus('failed');
+        recordHistoryItem(
+          seconds,
+          vocabCount,
+          corrections.length,
+          fallbackReport,
+          'failed',
+          entries,
+          corrections,
+          sessionVocab,
+        );
+      });
+  }, [persistProviderKey, recordHistoryItem]);
+
   const abortWithError = useCallback(
     (message: string) => {
       sessionActiveRef.current = false;
@@ -237,6 +345,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     setSessionSeconds(0);
     setSessionVocabCount(0);
     sessionVocabCountRef.current = 0;
+    sessionVocabCardsRef.current = [];
     secondsRef.current = 0;
     activeRoleRef.current = role;
     activeTopicTitleRef.current = topicTitle;
@@ -365,6 +474,9 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           );
         } else {
           abortWithError(t('err.connLost', { msg: message }));
+          if (transcriptRef.current.length > 0 || secondsRef.current >= 5) {
+            finalizeSessionAssessment();
+          }
         }
       };
 
@@ -412,6 +524,10 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             if (prev.some((c) => c.word.trim().toLowerCase() === cleanWord)) return prev;
             return [card, ...prev];
           });
+          sessionVocabCardsRef.current = [
+            card,
+            ...sessionVocabCardsRef.current.filter((c) => c.word.trim().toLowerCase() !== cleanWord),
+          ];
           sessionVocabCountRef.current += 1;
           setSessionVocabCount((n) => n + 1);
         },
@@ -452,31 +568,6 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     startAttempt(voiceProvider, 0);
   };
 
-  const recordHistoryItem = useCallback(
-    (
-      durationSeconds: number,
-      wordsRecordedCount: number,
-      correctionsCount: number,
-      reportObj: SessionReport,
-      status: 'ready' | 'failed',
-    ) => {
-      const entry: SessionHistoryEntry = {
-        id: Math.random().toString(36).slice(2, 10),
-        dateIso: new Date().toISOString(),
-        role: activeRoleRef.current,
-        topicTitle: activeTopicTitleRef.current,
-        durationSeconds,
-        wordsRecordedCount,
-        correctionsCount,
-        overallBand: reportObj.overallBand,
-        reportStatus: status,
-        report: reportObj,
-      };
-      setHistoryEntries((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ITEMS));
-    },
-    [],
-  );
-
   const endSession = useCallback(() => {
     if (!sessionActiveRef.current) return;
     sessionActiveRef.current = false;
@@ -490,49 +581,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     setAiVolume(0);
     setSessionSeconds(secondsRef.current);
 
-    const seconds = secondsRef.current;
-    const vocabCount = sessionVocabCountRef.current;
-    const entries = transcriptRef.current;
-    const corrections = feedbackLogsRef.current;
-    const reportProvider = reportProviderRef.current;
-
-    if (seconds > 5 && entries.length > 0) {
-      const transcriptText = entries
-        .map((e) => `${e.role === 'user' ? 'Speaker' : 'Coach'}: ${e.text}`)
-        .join('\n');
-
-      setShowSummary(true);
-      const fallbackBand = Math.round(heuristicBand(corrections.length, vocabCount) * 2) / 2;
-
-      if (!reportProvider) {
-        setReport(null);
-        setReportStatus('failed');
-        recordHistoryItem(seconds, vocabCount, corrections.length, buildFallbackReport(fallbackBand), 'failed');
-        return;
-      }
-
-      setReport(null);
-      setReportStatus('loading');
-
-      const reportSessionSeq = sessionSeqRef.current;
-      generateSessionReport(reportProvider, transcriptText, corrections)
-        .then((result) => {
-          if (reportSessionSeq !== sessionSeqRef.current) return; // a new session owns the UI now
-          setReport(result.report);
-          setReportStatus('ready');
-          recordHistoryItem(seconds, vocabCount, corrections.length, result.report, 'ready');
-          if (result.usedKeyIndex !== reportProvider.keyIndex) {
-            persistProviderKey({ ...reportProvider, keyIndex: result.usedKeyIndex });
-          }
-        })
-        .catch((err) => {
-          if (reportSessionSeq !== sessionSeqRef.current) return;
-          console.error('Session report generation failed:', err);
-          setReportStatus('failed');
-          recordHistoryItem(seconds, vocabCount, corrections.length, buildFallbackReport(fallbackBand), 'failed');
-        });
-    }
-  }, [teardownRefs, persistProviderKey, recordHistoryItem]);
+    finalizeSessionAssessment();
+  }, [teardownRefs, finalizeSessionAssessment]);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -549,15 +599,25 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const openHistoricalReport = useCallback((entry: SessionHistoryEntry) => {
     setSessionSeconds(entry.durationSeconds);
     setSessionVocabCount(entry.wordsRecordedCount);
-    setFeedbackLogs(Array.from({ length: entry.correctionsCount }, (_, i) => ({
-      id: `hist_${i}`,
-      userSpoke: '',
-      betterAlternative: '',
-      explanation: '',
-      type: 'grammar',
-      timestamp: '',
-    })));
-    setReport(entry.reportStatus === 'ready' ? entry.report : null);
+    if (entry.transcript && entry.transcript.length > 0) {
+      setTranscript(entry.transcript);
+      transcriptRef.current = entry.transcript;
+    }
+    if (entry.feedbackLogs && entry.feedbackLogs.length > 0) {
+      setFeedbackLogs(entry.feedbackLogs);
+    } else {
+      setFeedbackLogs(
+        Array.from({ length: entry.correctionsCount }, (_, i) => ({
+          id: `hist_${i}`,
+          userSpoke: '',
+          betterAlternative: '',
+          explanation: '',
+          type: 'grammar',
+          timestamp: '',
+        })),
+      );
+    }
+    setReport(entry.report);
     setReportStatus(entry.reportStatus);
     setShowSummary(true);
   }, []);

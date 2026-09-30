@@ -116,4 +116,8 @@ export interface SessionHistoryEntry {
   overallBand: number;
   reportStatus: 'ready' | 'failed';
   report: SessionReport;
+  transcript?: TranscriptEntry[];
+  feedbackLogs?: FeedbackLog[];
+  vocabCards?: VocabCard[];
 }
+
