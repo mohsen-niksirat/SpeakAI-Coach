@@ -224,6 +224,11 @@ export const SettingsModal: React.FC<Props> = ({
               <option value="friendly_chat">{t('settings.role.friendly')}</option>
               <option value="job_interview">{t('settings.role.job')}</option>
               <option value="debate_partner">{t('settings.role.debate')}</option>
+              <option value="shadowing_coach">{t('settings.role.shadowing')}</option>
+              <option value="pronunciation_drill">{t('settings.role.pronunciation')}</option>
+              <option value="roleplay_scenario">{t('settings.role.roleplay')}</option>
+              <option value="storytelling">{t('settings.role.storytelling')}</option>
+              <option value="vocabulary_builder">{t('settings.role.vocabulary')}</option>
             </select>
           </div>
 

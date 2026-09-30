@@ -1,4 +1,13 @@
-export type CoachRole = 'ielts_examiner' | 'friendly_chat' | 'job_interview' | 'debate_partner';
+export type CoachRole =
+  | 'ielts_examiner'
+  | 'friendly_chat'
+  | 'job_interview'
+  | 'debate_partner'
+  | 'shadowing_coach'
+  | 'pronunciation_drill'
+  | 'roleplay_scenario'
+  | 'storytelling'
+  | 'vocabulary_builder';
 export type VoiceName = string;
 
 export type ProviderKind = 'gemini-live' | 'openai-realtime' | 'openai-chat';
@@ -71,7 +80,19 @@ export interface SessionStats {
   estimatedBandScore: number;
 }
 
-export type TopicCategory = 'free' | 'ielts_part1' | 'ielts_part2' | 'ielts_part3' | 'interview' | 'debate' | 'custom';
+export type TopicCategory =
+  | 'free'
+  | 'ielts_part1'
+  | 'ielts_part2'
+  | 'ielts_part3'
+  | 'interview'
+  | 'debate'
+  | 'shadowing'
+  | 'pronunciation'
+  | 'roleplay'
+  | 'storytelling'
+  | 'vocab_drill'
+  | 'custom';
 
 export interface PracticeTopic {
   id: string;

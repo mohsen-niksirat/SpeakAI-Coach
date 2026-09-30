@@ -149,6 +149,131 @@ export const PRACTICE_TOPICS: PracticeTopic[] = [
     prompt:
       'Debate the motion: "Social media platforms have done more harm than good to modern society." Challenge the user with counterarguments and ask for evidence.',
   },
+  // Shadowing
+  {
+    id: 'shadow_beginner',
+    category: 'shadowing',
+    title: 'Shadowing: Daily Life (Beginner)',
+    titleFa: 'شدویینگ: زندگی روزمره (مبتدی)',
+    prompt:
+      'Run a shadowing drill with short, simple sentences about daily routines, greetings, and common situations. Speak slowly and clearly. Wait for the user to repeat each sentence before proceeding.',
+  },
+  {
+    id: 'shadow_intermediate',
+    category: 'shadowing',
+    title: 'Shadowing: News & Current Events (Intermediate)',
+    titleFa: 'شدویینگ: اخبار و رویدادها (متوسط)',
+    prompt:
+      'Run a shadowing drill with medium-length sentences about news headlines, technology trends, and world events. Use natural connected speech and moderate speed.',
+  },
+  {
+    id: 'shadow_advanced',
+    category: 'shadowing',
+    title: 'Shadowing: Academic & TED Talks (Advanced)',
+    titleFa: 'شدویینگ: آکادمیک و سخنرانی‌ها (پیشرفته)',
+    prompt:
+      'Run an advanced shadowing drill with complex, multi-clause sentences drawn from academic lectures, TED Talks, and scientific writing. Use natural pace with connected speech features like linking, elision, and assimilation.',
+  },
+  // Pronunciation Drill
+  {
+    id: 'pron_minimal_pairs',
+    category: 'pronunciation',
+    title: 'Pronunciation: Minimal Pairs Drill',
+    titleFa: 'تلفظ: تمرین جفت‌های کمینه',
+    prompt:
+      'Drill minimal pairs (ship/sheep, bat/bet, thin/sin, light/right, etc.). Present each pair, model the sounds, and have the user practice distinguishing and producing them correctly.',
+  },
+  {
+    id: 'pron_stress_intonation',
+    category: 'pronunciation',
+    title: 'Pronunciation: Stress & Intonation Patterns',
+    titleFa: 'تلفظ: تکیه و آهنگ جمله',
+    prompt:
+      'Focus on English word stress (PHOtograph vs photoGRAPHic), sentence stress, and intonation patterns. Practice rising/falling tones for questions and statements. Include compound nouns and phrasal verbs.',
+  },
+  {
+    id: 'pron_connected_speech',
+    category: 'pronunciation',
+    title: 'Pronunciation: Connected Speech & Linking',
+    titleFa: 'تلفظ: گفتار پیوسته و اتصال کلمات',
+    prompt:
+      'Practice connected speech features: linking ("an apple" → "anapple"), elision ("next day" → "nex day"), assimilation ("ten people" → "tem people"), and weak forms. Use natural sentence contexts.',
+  },
+  // Storytelling
+  {
+    id: 'story_retelling',
+    category: 'storytelling',
+    title: 'Story Retelling Practice',
+    titleFa: 'تمرین بازگویی داستان',
+    prompt:
+      'Tell the user a short, interesting story (3-4 sentences). Then ask them to retell it in their own words. Evaluate their use of narrative tenses, cohesion, and vocabulary. Give feedback and tell another story.',
+  },
+  {
+    id: 'story_building',
+    category: 'storytelling',
+    title: 'Collaborative Story Building',
+    titleFa: 'داستان‌سازی مشترک',
+    prompt:
+      'Build a story together with the user. Start with an opening sentence and take turns adding to the plot. Encourage the user to use complex sentences, descriptive language, and narrative devices. Correct grammar gently.',
+  },
+  // Vocabulary Drill
+  {
+    id: 'vocab_academic',
+    category: 'vocab_drill',
+    title: 'Academic Word List Drill',
+    titleFa: 'تمرین واژگان آکادمیک',
+    prompt:
+      'Teach and drill words from the Academic Word List. For each word: define it, give example sentences, ask the user to create their own sentences, and test with fill-in-the-blank exercises.',
+  },
+  {
+    id: 'vocab_idioms',
+    category: 'vocab_drill',
+    title: 'Idioms & Phrasal Verbs Practice',
+    titleFa: 'تمرین اصطلاحات و افعال عبارتی',
+    prompt:
+      'Teach common English idioms and phrasal verbs. For each one: explain the meaning, give 2 example sentences, ask the user to use it in context. Mix formal and informal registers.',
+  },
+  {
+    id: 'vocab_collocations',
+    category: 'vocab_drill',
+    title: 'Collocations & Word Partnerships',
+    titleFa: 'تمرین همایندها (Collocations)',
+    prompt:
+      'Drill natural English collocations. Present correct vs incorrect partnerships ("make a decision" not "do a decision", "heavy rain" not "strong rain"). Quiz the user and provide memorable examples.',
+  },
+  // Real-Life Roleplay Scenarios
+  {
+    id: 'rp_airport_customs',
+    category: 'roleplay',
+    title: 'Roleplay: Airport Immigration & Lost Luggage',
+    titleFa: 'سناریو: فرودگاه، افسر مهاجرت و چمدان گمشده',
+    prompt:
+      'Act as an airport immigration officer and then baggage service agent. Ask the traveler about their visa purpose, return ticket, and help them file a lost luggage report with realistic follow-up questions.',
+  },
+  {
+    id: 'rp_doctor_visit',
+    category: 'roleplay',
+    title: 'Roleplay: Doctor Appointment & Symptoms',
+    titleFa: 'سناریو: مطب پزشک و توضیح علائم بیماری',
+    prompt:
+      'Act as a sympathetic general practitioner (doctor) at a clinic. Ask the patient about their symptoms, duration, medical history, and allergies, then explain a treatment plan.',
+  },
+  {
+    id: 'rp_hotel_restaurant',
+    category: 'roleplay',
+    title: 'Roleplay: Hotel Room Issue & Restaurant Order',
+    titleFa: 'سناریو: اعتراض به اتاق هتل و سفارش در رستوران',
+    prompt:
+      'Act as a hotel front-desk manager handling a noisy room complaint, followed by a fine-dining waiter helping with dietary restrictions and menu recommendations.',
+  },
+  {
+    id: 'rp_salary_negotiation',
+    category: 'roleplay',
+    title: 'Roleplay: Salary Negotiation & Promotion',
+    titleFa: 'سناریو: مذاکره حقوق و ارتقای شغلی با مدیر',
+    prompt:
+      'Act as a company department director in an annual review. Listen to the employee pitch their achievements and negotiate salary/benefits firmly but fairly.',
+  },
 ];
 
 export function getSuggestedCategoriesForRole(role: CoachRole): TopicCategory[] {
@@ -159,9 +284,32 @@ export function getSuggestedCategoriesForRole(role: CoachRole): TopicCategory[] 
       return ['free', 'interview', 'custom'];
     case 'debate_partner':
       return ['free', 'debate', 'custom'];
+    case 'shadowing_coach':
+      return ['free', 'shadowing', 'custom'];
+    case 'pronunciation_drill':
+      return ['free', 'pronunciation', 'custom'];
+    case 'roleplay_scenario':
+      return ['free', 'roleplay', 'custom'];
+    case 'storytelling':
+      return ['free', 'storytelling', 'custom'];
+    case 'vocabulary_builder':
+      return ['free', 'vocab_drill', 'custom'];
     case 'friendly_chat':
     default:
-      return ['free', 'ielts_part1', 'ielts_part2', 'ielts_part3', 'interview', 'debate', 'custom'];
+      return [
+        'free',
+        'ielts_part1',
+        'ielts_part2',
+        'ielts_part3',
+        'interview',
+        'debate',
+        'shadowing',
+        'pronunciation',
+        'roleplay',
+        'storytelling',
+        'vocab_drill',
+        'custom',
+      ];
   }
 }
 

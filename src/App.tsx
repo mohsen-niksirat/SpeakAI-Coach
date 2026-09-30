@@ -7,6 +7,8 @@ import { TranscriptPanel } from './components/TranscriptPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
 import { CueCardWidget } from './components/CueCardWidget';
+import { ShadowingStudio } from './components/ShadowingStudio';
+import { PhraseBooster } from './components/PhraseBooster';
 import { HistoryModal } from './components/HistoryModal';
 import { CoachRole, ProviderSettings } from './types';
 import { loadProviderSettings, saveProviderSettings } from './services/providers';
@@ -24,9 +26,24 @@ import {
   Globe,
   History,
   BookOpen,
+  Headphones,
+  Lightbulb,
+  GraduationCap,
 } from 'lucide-react';
 
 const PREFS_STORAGE_KEY = 'speakai_prefs';
+
+const ALL_ROLES: { id: CoachRole; icon: string }[] = [
+  { id: 'ielts_examiner', icon: '🎯' },
+  { id: 'shadowing_coach', icon: '🔁' },
+  { id: 'pronunciation_drill', icon: '🗣️' },
+  { id: 'roleplay_scenario', icon: '🎭' },
+  { id: 'storytelling', icon: '📖' },
+  { id: 'vocabulary_builder', icon: '🧠' },
+  { id: 'job_interview', icon: '💼' },
+  { id: 'debate_partner', icon: '⚖️' },
+  { id: 'friendly_chat', icon: '☕' },
+];
 
 function loadPrefs(): { role: CoachRole; voice: string; topicId: string; customTopic: string } {
   try {
@@ -54,6 +71,11 @@ export default function App() {
   const [customTopicText, setCustomTopicText] = useState<string>(initialPrefs.customTopic);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [showShadowStudio, setShowShadowStudio] = useState<boolean>(
+    initialPrefs.role === 'shadowing_coach' || initialPrefs.role === 'pronunciation_drill',
+  );
+  const [showPhraseBooster, setShowPhraseBooster] = useState<boolean>(false);
+  const [pinnedShadowText, setPinnedShadowText] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -118,6 +140,19 @@ export default function App() {
     }
   }, [settings.providers.length]);
 
+  const handleRoleChange = (nextRole: CoachRole) => {
+    setRole(nextRole);
+    if (nextRole === 'shadowing_coach' || nextRole === 'pronunciation_drill') {
+      setShowShadowStudio(true);
+    }
+    const nextCats = getSuggestedCategoriesForRole(nextRole);
+    const nextAvailable = PRACTICE_TOPICS.filter((tp) => nextCats.includes(tp.category));
+    if (topicId !== 'custom' && !nextAvailable.some((tp) => tp.id === topicId)) {
+      const preferred = nextAvailable.find((tp) => tp.id !== 'free') || nextAvailable[0];
+      setTopicId(preferred ? preferred.id : 'free');
+    }
+  };
+
   const allowedCategories = getSuggestedCategoriesForRole(role);
   const availableTopics = PRACTICE_TOPICS.filter((tp) => allowedCategories.includes(tp.category));
   const selectedTopic =
@@ -133,6 +168,11 @@ export default function App() {
         ? selectedTopic.titleFa
         : selectedTopic.title;
     startSession(role, voice, selectedTopic.prompt, title);
+  };
+
+  const handleShadowFromTranscript = (text: string) => {
+    setPinnedShadowText(text);
+    setShowShadowStudio(true);
   };
 
   const minutes = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
@@ -154,13 +194,37 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap justify-end">
           {isConnected && (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               {minutes}:{seconds}
             </div>
           )}
+          <button
+            onClick={() => setShowShadowStudio((v) => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border transition text-xs font-medium ${
+              showShadowStudio
+                ? 'bg-indigo-600/25 border-indigo-500/50 text-indigo-200'
+                : 'bg-surface border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+            }`}
+            title={t('shadow.title')}
+          >
+            <Headphones className="w-4 h-4 text-indigo-400" />
+            <span className="hidden md:inline">{t('shadow.toggleBtn')}</span>
+          </button>
+          <button
+            onClick={() => setShowPhraseBooster((v) => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border transition text-xs font-medium ${
+              showPhraseBooster
+                ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
+                : 'bg-surface border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+            }`}
+            title={t('booster.title')}
+          >
+            <Lightbulb className="w-4 h-4 text-amber-400" />
+            <span className="hidden md:inline">{t('booster.toggleBtn')}</span>
+          </button>
           <button
             onClick={() => setIsHistoryOpen(true)}
             className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition text-xs font-medium"
@@ -192,14 +256,50 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center gap-6 my-6">
+      <main className="flex-1 flex flex-col items-center gap-5 my-5">
+        <div className="w-full">
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1.5">
+            <GraduationCap className="w-3.5 h-3.5 text-indigo-400" />
+            <span>{t('mode.label')}</span>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5">
+            {ALL_ROLES.map((r) => {
+              const active = role === r.id;
+              return (
+                <button
+                  key={r.id}
+                  disabled={isConnected || phase === 'connecting'}
+                  onClick={() => handleRoleChange(r.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition border disabled:opacity-60 ${
+                    active
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/20'
+                      : 'bg-surface/90 text-slate-300 hover:text-white border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <span>{r.icon}</span>
+                  <span>{t(`roles.${r.id}`)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {showShadowStudio && (
+          <ShadowingStudio
+            transcript={transcript}
+            externalTargetText={pinnedShadowText}
+            onClearExternalTarget={() => setPinnedShadowText(null)}
+          />
+        )}
+
+        {showPhraseBooster && <PhraseBooster role={role} />}
+
         <div className="w-full flex flex-col lg:flex-row items-center justify-around gap-8">
           <div className="w-full lg:w-1/3 order-2 lg:order-1 h-64 lg:h-96">
             <LiveFeedbackPanel logs={feedbackLogs} />
           </div>
 
           <div className="flex flex-col items-center justify-center order-1 lg:order-2 w-full max-w-md">
-            {/* Topic / IELTS Cue Card Picker */}
             <div className="w-full mb-2">
               <label className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
                 <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
@@ -317,7 +417,11 @@ export default function App() {
 
         {showTranscript && (
           <div className="w-full">
-            <TranscriptPanel entries={transcript} />
+            <TranscriptPanel
+              entries={transcript}
+              sessionSeconds={sessionSeconds}
+              onShadowSentence={handleShadowFromTranscript}
+            />
           </div>
         )}
       </main>
@@ -332,7 +436,7 @@ export default function App() {
         settings={settings}
         onSettingsChange={updateSettings}
         role={role}
-        onSelectRole={setRole}
+        onSelectRole={handleRoleChange}
         voice={voice}
         onSelectVoice={setVoice}
       />

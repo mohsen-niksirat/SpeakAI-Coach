@@ -49,15 +49,31 @@ export function buildLeitnerProJson(cards: VocabCard[]): string {
   return JSON.stringify(payload, null, 2);
 }
 
-export function speakText(text: string): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
+export function speakText(text: string, rate = 0.95, onEnd?: () => void): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) {
+    onEnd?.();
+    return;
+  }
   try {
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text.trim());
     utter.lang = 'en-US';
-    utter.rate = 0.95;
+    utter.rate = Math.max(0.5, Math.min(1.5, rate));
+    if (onEnd) {
+      utter.onend = () => onEnd();
+      utter.onerror = () => onEnd();
+    }
     window.speechSynthesis.speak(utter);
   } catch {
-    // ignore speechSynthesis errors
+    onEnd?.();
+  }
+}
+
+export function stopSpeaking(): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+  } catch {
+    // ignore
   }
 }
