@@ -256,12 +256,21 @@ const RETIRED_OPENROUTER_MODELS = new Set([
 ]);
 
 export function cleanApiKey(raw: string): string {
-  return String(raw || '')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-    .trim()
+  const str = String(raw || '').replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '').trim();
+  if (!str) return '';
+  // If a Google AI Studio key (AIza...) is embedded inside a URL, query param, or labeled line, extract it directly
+  const aizaMatch = str.match(/AIza[0-9A-Za-z_-]{20,}/);
+  if (aizaMatch) return aizaMatch[0];
+  const groqMatch = str.match(/gsk_[0-9A-Za-z_-]{20,}/);
+  if (groqMatch) return groqMatch[0];
+  const orMatch = str.match(/sk-or-v1-[0-9A-Za-z_-]{20,}/i);
+  if (orMatch) return orMatch[0];
+
+  return str
     .replace(/^["'`]+|["'`]+$/g, '')
     .trim()
     .replace(/^Bearer\s+/i, '')
+    .replace(/^key\s*=\s*/i, '')
     .replace(/["'`\s]/g, '')
     .trim();
 }
@@ -274,7 +283,7 @@ export function detectPresetFromKey(rawKey: string): string | null {
   if (/^sk-or-/i.test(key)) return 'openrouter';
   if (/^csk-/i.test(key)) return 'cerebras';
   if (/^(ghp_|github_pat_)/i.test(key)) return 'github-models';
-  if (/^sk-(proj-|svcacct-)/i.test(key)) return 'openai-realtime';
+  if (/^sk-(proj-|svcacct-|[0-9A-Za-z]{16,})/i.test(key)) return 'openai-realtime';
   return null;
 }
 
@@ -347,13 +356,24 @@ export function sanitizeProvider(provider: Provider): Provider {
       model = 'gpt-4o-mini';
     }
   }
+  // Auto-fix OpenAI key accidentally pasted into a Gemini provider
+  else if (detectedFromKey === 'openai-realtime' && kind === 'gemini-live') {
+    kind = 'openai-realtime';
+    baseUrl = 'https://api.openai.com/v1';
+    if (/^gemini/i.test(model)) {
+      model = 'gpt-realtime';
+    }
+    if (!reportModel || /^gemini/i.test(reportModel)) {
+      reportModel = 'gpt-4.1-mini';
+    }
+  }
   // Auto-fix Google Gemini providers (both Live and Hybrid)
   else if (kind === 'gemini-live' || detectedFromKey === 'google-gemini' || /generativelanguage\.googleapis\.com/i.test(baseUrl)) {
     if (/api\.openai\.com|groq\.com|openrouter\.ai/i.test(baseUrl)) {
       baseUrl = 'https://generativelanguage.googleapis.com';
     }
     // If multiple keys exist and some are real AIza Google keys while others are foreign/corrupted, keep AIza keys first
-    const aizaKeys = keys.filter((k) => /^AIza[0-9A-Za-z_-]{15,}/.test(k));
+    const aizaKeys = keys.filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k));
     if (aizaKeys.length > 0) {
       keys = aizaKeys;
     }
@@ -373,6 +393,74 @@ export function sanitizeProvider(provider: Provider): Provider {
     keys,
     keyIndex: clampedIndex,
   };
+}
+
+function rescueAizaKeysFromStorage(): string[] {
+  const found: string[] = [];
+  try {
+    if (typeof localStorage === 'undefined') return found;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k === STORAGE_KEY || k === LEGACY_KEY) continue;
+      const val = localStorage.getItem(k);
+      if (!val || !val.includes('AIza')) continue;
+      const matches = val.match(/AIza[0-9A-Za-z_-]{25,45}/g);
+      if (matches) {
+        for (const m of matches) {
+          if (!found.includes(m)) found.push(m);
+        }
+      }
+    }
+  } catch {
+    // ignore storage access errors
+  }
+  return found;
+}
+
+export function reconcileProvidersList(rawProviders: Provider[]): Provider[] {
+  const sanitized = rawProviders.map(sanitizeProvider);
+
+  // Collect all valid AIza keys across all providers (in case a user's Gemini key was in a second Gemini entry)
+  const providerAizaKeys = Array.from(
+    new Set(
+      sanitized
+        .flatMap((p) => p.keys)
+        .filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k)),
+    ),
+  );
+  const allAizaKeys = providerAizaKeys.length > 0 ? providerAizaKeys : rescueAizaKeysFromStorage();
+
+  const result: Provider[] = [];
+  let primaryGemini: Provider | null = null;
+
+  for (const p of sanitized) {
+    if (p.kind === 'gemini-live') {
+      const validAiza = p.keys.filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k));
+      const effectiveKeys = validAiza.length > 0 ? validAiza : allAizaKeys.length > 0 ? allAizaKeys : p.keys;
+
+      // Drop auto-synced prov-leitner-gemini if it has no valid AIza keys and another provider exists
+      if (p.id === 'prov-leitner-gemini' && validAiza.length === 0 && allAizaKeys.length === 0 && sanitized.length > 1) {
+        continue;
+      }
+
+      if (!primaryGemini) {
+        primaryGemini = {
+          ...p,
+          keys: effectiveKeys,
+          keyIndex: Math.min(p.keyIndex || 0, Math.max(0, effectiveKeys.length - 1)),
+        };
+        result.push(primaryGemini);
+      } else {
+        // Merge duplicate gemini-live providers into the primary one
+        const merged = Array.from(new Set([...primaryGemini.keys, ...effectiveKeys]));
+        primaryGemini.keys = merged;
+      }
+    } else {
+      result.push(p);
+    }
+  }
+
+  return result;
 }
 
 export function detectPresetId(provider: Pick<Provider, 'kind' | 'baseUrl'>): string {
@@ -435,11 +523,19 @@ export function loadProviderSettings(): ProviderSettings {
     if (!raw) return migrateLegacyKey(empty);
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed?.providers)) return migrateLegacyKey(empty);
-    const sanitizedProviders = parsed.providers.map(sanitizeProvider);
+    const sanitizedProviders = reconcileProvidersList(parsed.providers);
+    const validVoiceId =
+      parsed.voiceProviderId && sanitizedProviders.some((p) => p.id === parsed.voiceProviderId)
+        ? parsed.voiceProviderId
+        : sanitizedProviders[0]?.id ?? null;
+    const validReportId =
+      parsed.reportProviderId && sanitizedProviders.some((p) => p.id === parsed.reportProviderId)
+        ? parsed.reportProviderId
+        : sanitizedProviders[0]?.id ?? null;
     return migrateLegacyKey({
       providers: sanitizedProviders,
-      voiceProviderId: parsed.voiceProviderId ?? sanitizedProviders[0]?.id ?? null,
-      reportProviderId: parsed.reportProviderId ?? sanitizedProviders[0]?.id ?? null,
+      voiceProviderId: validVoiceId,
+      reportProviderId: validReportId,
     });
   } catch {
     return empty;
@@ -448,9 +544,18 @@ export function loadProviderSettings(): ProviderSettings {
 
 export function saveProviderSettings(settings: ProviderSettings): void {
   try {
+    const reconciled = reconcileProvidersList(settings.providers || []);
     const sanitized: ProviderSettings = {
       ...settings,
-      providers: (settings.providers || []).map(sanitizeProvider),
+      providers: reconciled,
+      voiceProviderId:
+        settings.voiceProviderId && reconciled.some((p) => p.id === settings.voiceProviderId)
+          ? settings.voiceProviderId
+          : reconciled[0]?.id ?? null,
+      reportProviderId:
+        settings.reportProviderId && reconciled.some((p) => p.id === settings.reportProviderId)
+          ? settings.reportProviderId
+          : reconciled[0]?.id ?? null,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch {
@@ -471,7 +576,7 @@ export function rotateKey(provider: Provider): Provider {
 }
 
 export function findProvider(settings: ProviderSettings, id: string | null): Provider | null {
-  if (!id) return null;
-  const found = settings.providers.find((p) => p.id === id) ?? null;
+  if (!id) return settings.providers[0] ? sanitizeProvider(settings.providers[0]) : null;
+  const found = settings.providers.find((p) => p.id === id) ?? settings.providers[0] ?? null;
   return found ? sanitizeProvider(found) : null;
 }

@@ -400,11 +400,19 @@ export const SettingsModal: React.FC<Props> = ({
             <div className="space-y-2">
               {settings.providers.map((p) => {
                 const isActiveVoice = p.id === settings.voiceProviderId;
+                const firstK = cleanApiKey(p.keys[Math.min(p.keyIndex || 0, Math.max(p.keys.length - 1, 0))] || '');
+                const keyPreview =
+                  firstK.length >= 10
+                    ? `${firstK.slice(0, 6)}...${firstK.slice(-4)}`
+                    : firstK || (lang === 'fa' ? 'بدون کلید' : 'No key');
+                const isGeminiKeyInvalid = p.kind === 'gemini-live' && !/^AIza/i.test(firstK);
                 return (
                   <div
                     key={p.id}
                     className={`flex items-center justify-between gap-2 bg-slate-900 border rounded-xl px-3 py-2 ${
-                      isActiveVoice
+                      isGeminiKeyInvalid
+                        ? 'border-amber-500/60 bg-amber-950/15'
+                        : isActiveVoice
                         ? 'border-emerald-500/50 bg-emerald-950/15'
                         : p.id === settings.reportProviderId
                         ? 'border-indigo-500/40'
@@ -412,19 +420,35 @@ export const SettingsModal: React.FC<Props> = ({
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-semibold text-slate-200 truncate">{p.name}</span>
                         {isActiveVoice && (
                           <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
                             {lang === 'fa' ? '✓ فعال' : '✓ Active'}
                           </span>
                         )}
+                        <span
+                          className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono shrink-0 ${
+                            isGeminiKeyInvalid
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          🔑 {keyPreview}
+                        </span>
                       </div>
                       <div className="text-[10px] text-slate-500 truncate">
                         {t(`kind.${p.kind}`)} •{' '}
                         {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
                         {p.model}
                       </div>
+                      {isGeminiKeyInvalid && (
+                        <div className="text-[10px] text-amber-400 mt-0.5">
+                          {lang === 'fa'
+                            ? '⚠️ کلید ذخیره‌شده با AIzaSy شروع نمی‌شود؛ روی مداد (ویرایش) بزنید و کلید صحیح جمینای را وارد کنید.'
+                            : '⚠️ Stored key does not start with AIzaSy; click Edit to enter your Gemini key.'}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {!isActiveVoice && isVoiceCapable(p.kind) && (

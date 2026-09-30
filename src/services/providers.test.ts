@@ -10,6 +10,7 @@ import {
   cleanApiKey,
   detectPresetFromKey,
   sanitizeProvider,
+  reconcileProvidersList,
 } from './providers';
 import { Provider } from '../types';
 
@@ -89,8 +90,11 @@ describe('provider helpers & presets', () => {
     expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://my-proxy.local/v1' })).toBe('custom');
   });
 
-  it('cleans invisible characters, quotes, and Bearer prefix from API keys', () => {
+  it('cleans invisible characters, quotes, URL query strings, and Bearer prefix from API keys', () => {
     expect(cleanApiKey(' \u200B"Bearer AIzaSyTest123"\uFEFF ')).toBe('AIzaSyTest123');
+    expect(cleanApiKey('https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyRealKey123456789012345')).toBe(
+      'AIzaSyRealKey123456789012345',
+    );
     expect(detectPresetFromKey('gsk_abc123')).toBe('groq');
     expect(detectPresetFromKey('sk-or-v1-abc123')).toBe('openrouter');
     expect(detectPresetFromKey('AIzaSyAbc123')).toBe('google-gemini');
@@ -122,5 +126,32 @@ describe('provider helpers & presets', () => {
     });
     expect(retiredOpenRouter.model).toBe('openrouter/free');
     expect(retiredOpenRouter.reportModel).toBe('openrouter/free');
+  });
+
+  it('reconciles duplicate gemini-live providers and rescues valid AIza keys over shadow non-AIza entries', () => {
+    const reconciled = reconcileProvidersList([
+      {
+        id: 'prov-leitner-gemini',
+        name: 'Google Gemini',
+        kind: 'gemini-live',
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        model: 'gemini-2.5-flash-native-audio-latest',
+        keys: ['invalid-non-aiza-token'],
+        keyIndex: 0,
+      },
+      {
+        id: 'prov-user-gemini',
+        name: 'Google Gemini',
+        kind: 'gemini-live',
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        model: 'gemini-2.5-flash-native-audio-latest',
+        keys: ['AIzaSyValidUserKey1234567890'],
+        keyIndex: 0,
+      },
+    ]);
+
+    const geminiProviders = reconciled.filter((p) => p.kind === 'gemini-live');
+    expect(geminiProviders.length).toBe(1);
+    expect(geminiProviders[0].keys).toEqual(['AIzaSyValidUserKey1234567890']);
   });
 });

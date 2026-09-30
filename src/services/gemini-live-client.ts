@@ -9,6 +9,7 @@ import {
 } from './voice-client';
 import { t } from '../i18n/store';
 import { ProviderError, asProviderError, classifyCloseCode, classifyHttpStatus } from './errors';
+import { cleanApiKey } from './providers';
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
 const MAX_MODEL_HOPS = 5;
@@ -92,10 +93,7 @@ export class GeminiLiveClient implements VoiceClient {
   ) {
     this.callbacks = callbacks;
     this.provider = provider;
-    this.apiKey = String(apiKey || '')
-      .replace(/^Bearer\s+/i, '')
-      .replace(/["'\s\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-      .trim();
+    this.apiKey = cleanApiKey(apiKey);
     this.role = role;
     this.voice = voice;
     this.topicPrompt = topicPrompt;
@@ -144,8 +142,21 @@ export class GeminiLiveClient implements VoiceClient {
       } catch {
         // keep the status fallback
       }
-      if (/Expected OAuth 2 access token/i.test(message) && !/^AIza/i.test(this.apiKey)) {
-        message = `${message} — کلید واردشده فرمت Google AI Studio (که با AIzaSy شروع می‌شود) را ندارد. لطفاً در تنظیمات کلید صحیح جمینای (AIzaSy...) را وارد کنید.`;
+      if (/User location is not supported/i.test(message)) {
+        throw new ProviderError(
+          'setup_rejected',
+          'User location is not supported for the API use — سرور API گوگل (generativelanguage.googleapis.com) موقعیت جغرافیایی فعلی را پشتیبانی نمی‌کند. علت در گوشی: برنامه فیلترشکن دامنه‌های googleapis.com را دور می‌زند (Split-Tunneling / قوانین Direct) یا سرور فعلی فیلترشکن برای API توسعه‌دهندگان گوگل مسدود است. راه‌حل: در فیلترشکن حالت مسیریابی (Routing) را روی Global / All بگذارید، یا سرور دیگری انتخاب کنید، یا از سرویس‌های بدون محدودیت آی‌پی مثل Groq و OpenRouter استفاده کنید.',
+        );
+      }
+      if (/Expected OAuth 2 access token/i.test(message)) {
+        const preview = this.apiKey
+          ? `${this.apiKey.slice(0, 6)}...${this.apiKey.slice(-4)}`
+          : 'خالی';
+        if (!/^AIza/i.test(this.apiKey)) {
+          message = `${message} — کلید ذخیره‌شده فعلی («${preview}») فرمت کلید Google AI Studio (که با AIzaSy شروع می‌شود) را ندارد. لطفاً در تنظیمات روی آیکون مداد کنار Google Gemini بزنید و کلید صحیح (AIzaSy...) را وارد و ذخیره کنید.`;
+        } else {
+          message = `${message} — کلید («${preview}») توسط سرور گوگل پذیرفته نشد. لطفاً کلید را در تنظیمات بررسی یا کلید جدیدی از aistudio.google.com دریافت کنید.`;
+        }
       }
       const kind = classifyHttpStatus(res.status, message);
       if (kind === 'invalid_key') {
@@ -267,6 +278,10 @@ export class GeminiLiveClient implements VoiceClient {
       if (this.disposed) return;
       if (!this.setupDone && (event.code === 1008 || event.code === 1007)) {
         const reason = event.reason || '';
+        if (/location.*not supported/i.test(reason)) {
+          this.callbacks.onClose(event.code, reason, 'setup_rejected');
+          return;
+        }
         // Model rejected → jump to the next candidate (fresh full setup).
         if (
           MODEL_ERROR_RE.test(reason) &&

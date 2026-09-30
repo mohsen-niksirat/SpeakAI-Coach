@@ -305,6 +305,12 @@ export class BrowserChatVoiceClient implements VoiceClient {
           lastStatus = res.status;
           const body = await res.json().catch(() => null);
           lastErrMsg = body?.error?.message || `HTTP ${res.status}`;
+          if (/User location is not supported/i.test(lastErrMsg)) {
+            throw new ProviderError(
+              'setup_rejected',
+              'User location is not supported for the API use — سرور API گوگل (generativelanguage.googleapis.com) موقعیت جغرافیایی فعلی را پشتیبانی نمی‌کند. علت در گوشی: برنامه فیلترشکن دامنه‌های googleapis.com را دور می‌زند (Split-Tunneling / قوانین Direct) یا سرور فعلی فیلترشکن برای API توسعه‌دهندگان گوگل مسدود است. راه‌حل: در فیلترشکن حالت مسیریابی (Routing) را روی Global / All بگذارید، یا سرور دیگری انتخاب کنید، یا از سرویس‌های بدون محدودیت آی‌پی مثل Groq و OpenRouter استفاده کنید.',
+            );
+          }
           if (res.status === 401 || res.status === 403 || /api_key_invalid|api key not valid|invalid authentication/i.test(lastErrMsg)) {
             throw new ProviderError('invalid_key', t('err.keyRejected', { msg: lastErrMsg }));
           }

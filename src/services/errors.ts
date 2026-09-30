@@ -36,15 +36,23 @@ export function shouldRotateOnReconnect(kind: ProviderErrorKind): boolean {
 }
 
 export function classifyHttpStatus(status: number, message = ''): ProviderErrorKind {
-  if (status === 401 || status === 403 || /api key|unauthorized|permission denied/i.test(message)) {
+  if (status === 401 || status === 403 || /api key|unauthorized|permission denied|authentication credential/i.test(message)) {
     return 'invalid_key';
   }
+  if (/user location is not supported|location is not supported/i.test(message)) {
+    return 'setup_rejected';
+  }
   if (status === 429 || /rate limit|quota/i.test(message)) return 'rate_limited';
-  if (status === 404 || /model.*not.*found|not supported/i.test(message)) return 'model_unavailable';
+  if (status === 404 || /model.*not.*found|model.*not.*supported|not supported for bidi|unknown model|does not exist/i.test(message)) {
+    return 'model_unavailable';
+  }
   return 'unknown';
 }
 
 export function classifyCloseCode(code: number, reason = ''): ProviderErrorKind {
+  if (/user location is not supported|location is not supported/i.test(reason)) {
+    return 'setup_rejected';
+  }
   if (/not found|not supported for bidi|unknown model|does not exist/i.test(reason)) {
     return 'model_unavailable';
   }

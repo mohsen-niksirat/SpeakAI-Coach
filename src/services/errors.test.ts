@@ -25,6 +25,10 @@ describe('classifyHttpStatus', () => {
     expect(classifyHttpStatus(400, 'model gemini-x not found')).toBe('model_unavailable');
   });
 
+  it('maps geo-block (User location is not supported) to setup_rejected instead of model_unavailable', () => {
+    expect(classifyHttpStatus(400, 'User location is not supported for the API use.')).toBe('setup_rejected');
+  });
+
   it('falls back to unknown', () => {
     expect(classifyHttpStatus(500)).toBe('unknown');
     expect(classifyHttpStatus(418, 'teapot')).toBe('unknown');
@@ -36,6 +40,10 @@ describe('classifyCloseCode', () => {
     expect(
       classifyCloseCode(1008, 'models/x is not found for API version v1beta, or is not supported for bidiGenerateContent'),
     ).toBe('model_unavailable');
+  });
+
+  it('maps location not supported close reason to setup_rejected', () => {
+    expect(classifyCloseCode(1008, 'User location is not supported for the API use.')).toBe('setup_rejected');
   });
 
   it('treats generic 1008 as setup_rejected', () => {

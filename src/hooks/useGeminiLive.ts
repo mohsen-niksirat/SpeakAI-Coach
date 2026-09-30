@@ -304,7 +304,8 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 250);
           } else if (
             provider.kind === 'gemini-live' &&
-            kind !== 'invalid_key' &&
+            kind === 'network' &&
+            !/cannot reach|نمی‌توان به/i.test(message) &&
             typeof window !== 'undefined' &&
             ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
           ) {
@@ -319,6 +320,22 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             );
             attemptTimerRef.current = window.setTimeout(() => startAttempt(hybridFallback, 0), 200);
           } else {
+            if (/User location is not supported|cannot reach|نمی‌توان به/i.test(message)) {
+              const altProvider = settingsRef.current.providers.find(
+                (p) =>
+                  p.id !== provider.id &&
+                  p.kind !== 'gemini-live' &&
+                  !/generativelanguage\.googleapis\.com/i.test(p.baseUrl) &&
+                  p.keys.length > 0,
+              );
+              if (altProvider) {
+                setNotice(
+                  `سرور جمینای روی این فیلترشکن مسدود است (User location is not supported) — سوییچ خودکار به «${altProvider.name}» انجام شد.`,
+                );
+                attemptTimerRef.current = window.setTimeout(() => startAttempt(altProvider, 0), 200);
+                return;
+              }
+            }
             const suffix =
               isRotatable(kind) && provider.keys.length > 1 && attemptsSoFar + 1 >= provider.keys.length
                 ? t('err.triedAll', { n: provider.keys.length })
