@@ -1,5 +1,5 @@
 import { FeedbackLog, SessionReport, CriterionScore, Provider } from '../types';
-import { cleanApiKey, normalizeBaseUrl } from './providers';
+import { cleanApiKey, isGoogleApiKey, normalizeBaseUrl } from './providers';
 
 export function heuristicBand(corrections: number, vocab: number): number {
   return Math.max(5.5, Math.min(8.5, 7.5 - corrections * 0.2 + vocab * 0.1));
@@ -104,22 +104,38 @@ async function callGemini(baseUrl: string, model: string, apiKey: string, prompt
   const base = normalizeBaseUrl(baseUrl) || 'https://generativelanguage.googleapis.com';
   const cleanKey = cleanApiKey(apiKey);
   const safeModel = model.includes('native-audio') ? 'gemini-2.5-flash' : model;
+  const payload = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+    },
+  });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   let res: Response;
   try {
-    res = await fetch(`${base}/v1beta/models/${safeModel}:generateContent?key=${encodeURIComponent(cleanKey)}`, {
+    const endpointUrl = /aiplatform\.googleapis\.com/i.test(base)
+      ? `${base}/v1beta1/publishers/google/models/${safeModel}:generateContent?key=${encodeURIComponent(cleanKey)}`
+      : `${base}/v1beta/models/${safeModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    res = await fetch(endpointUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-        },
-      }),
+      body: payload,
       signal: ctrl.signal,
     });
+    if (!res.ok && (res.status === 401 || res.status === 403) && /^AQ\./i.test(cleanKey) && !/aiplatform\.googleapis\.com/i.test(base)) {
+      const vRes = await fetch(
+        `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${safeModel}:generateContent?key=${encodeURIComponent(cleanKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          signal: ctrl.signal,
+        },
+      );
+      if (vRes.ok) res = vRes;
+    }
   } catch {
     throw new ReportNetworkError('Report request timed out after 45s.');
   } finally {
@@ -191,8 +207,8 @@ export async function generateSessionReport(
     const key = cleanApiKey(keys[idx]);
     const useGeminiApi =
       provider.kind === 'gemini-live' ||
-      normalizeBaseUrl(provider.baseUrl).includes('generativelanguage.googleapis.com') ||
-      key.startsWith('AIza');
+      /generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com/i.test(normalizeBaseUrl(provider.baseUrl)) ||
+      isGoogleApiKey(key);
     try {
       const text = useGeminiApi
         ? await callGemini(provider.baseUrl, model, key, prompt)

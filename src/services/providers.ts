@@ -69,7 +69,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Analytical)' },
       { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
     ],
-    keyPlaceholder: 'AIzaSy...',
+    keyPlaceholder: 'AQ.Ab8... / AIzaSy...',
   },
   {
     id: 'google-gemini-hybrid',
@@ -90,7 +90,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       { value: 'gemini-3.8-flash', label: 'gemini-3.8-flash' },
       { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
     ],
-    keyPlaceholder: 'AIzaSy...',
+    keyPlaceholder: 'AQ.Ab8... / AIzaSy...',
   },
   {
     id: 'groq',
@@ -255,12 +255,19 @@ const RETIRED_OPENROUTER_MODELS = new Set([
   'openai/gpt-oss-20b:free',
 ]);
 
+export function isGoogleApiKey(rawKey: string): boolean {
+  const k = String(rawKey || '').trim();
+  return /^AIza[0-9A-Za-z_-]{4,}/i.test(k) || /^AQ\.[0-9A-Za-z_.-]{8,}={0,2}$/i.test(k);
+}
+
 export function cleanApiKey(raw: string): string {
   const str = String(raw || '').replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '').trim();
   if (!str) return '';
-  // If a Google AI Studio key (AIza...) is embedded inside a URL, query param, or labeled line, extract it directly
+  // If a Google key (AIza... or AQ.Ab8...) is embedded inside a URL, query param, or labeled line, extract it directly
   const aizaMatch = str.match(/AIza[0-9A-Za-z_-]{20,}/);
   if (aizaMatch) return aizaMatch[0];
+  const aqMatch = str.match(/AQ\.[0-9A-Za-z_.-]{20,}={0,2}/i);
+  if (aqMatch) return aqMatch[0];
   const groqMatch = str.match(/gsk_[0-9A-Za-z_-]{20,}/);
   if (groqMatch) return groqMatch[0];
   const orMatch = str.match(/sk-or-v1-[0-9A-Za-z_-]{20,}/i);
@@ -278,7 +285,7 @@ export function cleanApiKey(raw: string): string {
 export function detectPresetFromKey(rawKey: string): string | null {
   const key = cleanApiKey(rawKey);
   if (!key) return null;
-  if (/^AIza[0-9A-Za-z_-]{4,}/.test(key)) return 'google-gemini';
+  if (isGoogleApiKey(key)) return 'google-gemini';
   if (/^gsk_[0-9A-Za-z_-]{4,}/i.test(key)) return 'groq';
   if (/^sk-or-/i.test(key)) return 'openrouter';
   if (/^csk-/i.test(key)) return 'cerebras';
@@ -368,14 +375,18 @@ export function sanitizeProvider(provider: Provider): Provider {
     }
   }
   // Auto-fix Google Gemini providers (both Live and Hybrid)
-  else if (kind === 'gemini-live' || detectedFromKey === 'google-gemini' || /generativelanguage\.googleapis\.com/i.test(baseUrl)) {
+  else if (
+    kind === 'gemini-live' ||
+    detectedFromKey === 'google-gemini' ||
+    /generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com/i.test(baseUrl)
+  ) {
     if (/api\.openai\.com|groq\.com|openrouter\.ai/i.test(baseUrl)) {
       baseUrl = 'https://generativelanguage.googleapis.com';
     }
-    // If multiple keys exist and some are real AIza Google keys while others are foreign/corrupted, keep AIza keys first
-    const aizaKeys = keys.filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k));
-    if (aizaKeys.length > 0) {
-      keys = aizaKeys;
+    // If multiple keys exist and some are real Google keys (AIza... or AQ....) while others are foreign/corrupted, keep Google keys first
+    const googleKeys = keys.filter(isGoogleApiKey);
+    if (googleKeys.length > 0) {
+      keys = googleKeys;
     }
     if (kind === 'openai-chat' && /native-audio|live/i.test(model)) {
       model = 'gemini-2.5-flash';
@@ -395,7 +406,7 @@ export function sanitizeProvider(provider: Provider): Provider {
   };
 }
 
-function rescueAizaKeysFromStorage(): string[] {
+function rescueGoogleKeysFromStorage(): string[] {
   const found: string[] = [];
   try {
     if (typeof localStorage === 'undefined') return found;
@@ -403,8 +414,8 @@ function rescueAizaKeysFromStorage(): string[] {
       const k = localStorage.key(i);
       if (!k || k === STORAGE_KEY || k === LEGACY_KEY) continue;
       const val = localStorage.getItem(k);
-      if (!val || !val.includes('AIza')) continue;
-      const matches = val.match(/AIza[0-9A-Za-z_-]{25,45}/g);
+      if (!val || (!val.includes('AIza') && !val.includes('AQ.'))) continue;
+      const matches = val.match(/(?:AIza[0-9A-Za-z_-]{25,45}|AQ\.[0-9A-Za-z_.-]{20,80}={0,2})/g);
       if (matches) {
         for (const m of matches) {
           if (!found.includes(m)) found.push(m);
@@ -420,26 +431,26 @@ function rescueAizaKeysFromStorage(): string[] {
 export function reconcileProvidersList(rawProviders: Provider[]): Provider[] {
   const sanitized = rawProviders.map(sanitizeProvider);
 
-  // Collect all valid AIza keys across all providers (in case a user's Gemini key was in a second Gemini entry)
-  const providerAizaKeys = Array.from(
+  // Collect all valid Google keys (AIza... and AQ....) across all providers
+  const providerGoogleKeys = Array.from(
     new Set(
       sanitized
         .flatMap((p) => p.keys)
-        .filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k)),
+        .filter(isGoogleApiKey),
     ),
   );
-  const allAizaKeys = providerAizaKeys.length > 0 ? providerAizaKeys : rescueAizaKeysFromStorage();
+  const allGoogleKeys = providerGoogleKeys.length > 0 ? providerGoogleKeys : rescueGoogleKeysFromStorage();
 
   const result: Provider[] = [];
   let primaryGemini: Provider | null = null;
 
   for (const p of sanitized) {
     if (p.kind === 'gemini-live') {
-      const validAiza = p.keys.filter((k) => /^AIza[0-9A-Za-z_-]{4,}/.test(k));
-      const effectiveKeys = validAiza.length > 0 ? validAiza : allAizaKeys.length > 0 ? allAizaKeys : p.keys;
+      const validGoogle = p.keys.filter(isGoogleApiKey);
+      const effectiveKeys = validGoogle.length > 0 ? validGoogle : allGoogleKeys.length > 0 ? allGoogleKeys : p.keys;
 
-      // Drop auto-synced prov-leitner-gemini if it has no valid AIza keys and another provider exists
-      if (p.id === 'prov-leitner-gemini' && validAiza.length === 0 && allAizaKeys.length === 0 && sanitized.length > 1) {
+      // Drop auto-synced prov-leitner-gemini if it has no valid Google keys and another provider exists
+      if (p.id === 'prov-leitner-gemini' && validGoogle.length === 0 && allGoogleKeys.length === 0 && sanitized.length > 1) {
         continue;
       }
 

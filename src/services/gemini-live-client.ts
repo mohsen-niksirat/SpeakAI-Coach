@@ -9,7 +9,7 @@ import {
 } from './voice-client';
 import { t } from '../i18n/store';
 import { ProviderError, asProviderError, classifyCloseCode, classifyHttpStatus } from './errors';
-import { cleanApiKey } from './providers';
+import { cleanApiKey, isGoogleApiKey } from './providers';
 
 const MAX_SETUP_STAGE = 3; // 0: full … 3: bare (model + system prompt only)
 const MAX_MODEL_HOPS = 5;
@@ -148,14 +148,22 @@ export class GeminiLiveClient implements VoiceClient {
           'User location is not supported for the API use — سرور API گوگل (generativelanguage.googleapis.com) موقعیت جغرافیایی فعلی را پشتیبانی نمی‌کند. علت در گوشی: برنامه فیلترشکن دامنه‌های googleapis.com را دور می‌زند (Split-Tunneling / قوانین Direct) یا سرور فعلی فیلترشکن برای API توسعه‌دهندگان گوگل مسدود است. راه‌حل: در فیلترشکن حالت مسیریابی (Routing) را روی Global / All بگذارید، یا سرور دیگری انتخاب کنید، یا از سرویس‌های بدون محدودیت آی‌پی مثل Groq و OpenRouter استفاده کنید.',
         );
       }
+      // For AQ. keys, ModelService.ListModels (GET /v1beta/models) may return 401/403
+      // even when BidiGenerateContent WebSocket or Vertex Express works. Proceed to WebSocket!
+      if (/^AQ\./i.test(this.apiKey) && (res.status === 401 || res.status === 403)) {
+        for (const name of HARDCODED_LIVE_MODELS) {
+          if (!this.candidates.includes(name)) this.candidates.push(name);
+        }
+        return;
+      }
       if (/Expected OAuth 2 access token/i.test(message)) {
         const preview = this.apiKey
           ? `${this.apiKey.slice(0, 6)}...${this.apiKey.slice(-4)}`
           : 'خالی';
-        if (!/^AIza/i.test(this.apiKey)) {
-          message = `${message} — کلید ذخیره‌شده فعلی («${preview}») فرمت کلید Google AI Studio (که با AIzaSy شروع می‌شود) را ندارد. لطفاً در تنظیمات روی آیکون مداد کنار Google Gemini بزنید و کلید صحیح (AIzaSy...) را وارد و ذخیره کنید.`;
+        if (!isGoogleApiKey(this.apiKey)) {
+          message = `${message} — کلید ذخیره‌شده فعلی («${preview}») فرمت کلید گوگل جمینای (AQ.Ab8... یا AIzaSy...) را ندارد. لطفاً در تنظیمات روی آیکون مداد کنار Google Gemini بزنید و کلید صحیح را وارد و ذخیره کنید.`;
         } else {
-          message = `${message} — کلید («${preview}») توسط سرور گوگل پذیرفته نشد. لطفاً کلید را در تنظیمات بررسی یا کلید جدیدی از aistudio.google.com دریافت کنید.`;
+          message = `${message} — کلید گوگل («${preview}») توسط سرور گوگل پذیرفته نشد (ممکن است کلید منقضی/غیرفعال شده یا ناقص کپی شده باشد). لطفاً کلید جدیدی از aistudio.google.com/apikey دریافت کنید.`;
         }
       }
       const kind = classifyHttpStatus(res.status, message);
@@ -280,6 +288,14 @@ export class GeminiLiveClient implements VoiceClient {
         const reason = event.reason || '';
         if (/location.*not supported/i.test(reason)) {
           this.callbacks.onClose(event.code, reason, 'setup_rejected');
+          return;
+        }
+        if (/invalid authentication credentials|Expected OAuth 2 access token|API key not valid/i.test(reason)) {
+          const preview = this.apiKey
+            ? `${this.apiKey.slice(0, 6)}...${this.apiKey.slice(-4)}`
+            : 'خالی';
+          const detailedReason = `${reason} — کلید گوگل («${preview}») توسط سرور گوگل رد شد (ممکن است منقضی/غیرفعال شده یا ناقص کپی شده باشد).`;
+          this.callbacks.onClose(event.code, detailedReason, 'invalid_key');
           return;
         }
         // Model rejected → jump to the next candidate (fresh full setup).

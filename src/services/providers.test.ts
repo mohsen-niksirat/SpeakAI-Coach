@@ -98,6 +98,7 @@ describe('provider helpers & presets', () => {
     expect(detectPresetFromKey('gsk_abc123')).toBe('groq');
     expect(detectPresetFromKey('sk-or-v1-abc123')).toBe('openrouter');
     expect(detectPresetFromKey('AIzaSyAbc123')).toBe('google-gemini');
+    expect(detectPresetFromKey('AQ.Ab8RN6KnyqHtoQ1M7Whqr4Dxrs0BicXj3jGiZMAt_rtBF7IKg')).toBe('google-gemini');
   });
 
   it('auto-repairs misconfigured Groq, OpenRouter, and Gemini providers via sanitizeProvider', () => {
@@ -128,7 +129,7 @@ describe('provider helpers & presets', () => {
     expect(retiredOpenRouter.reportModel).toBe('openrouter/free');
   });
 
-  it('reconciles duplicate gemini-live providers and rescues valid AIza keys over shadow non-AIza entries', () => {
+  it('reconciles duplicate gemini-live providers and preserves both AIza and AQ.Ab8 Google keys', () => {
     const reconciled = reconcileProvidersList([
       {
         id: 'prov-leitner-gemini',
@@ -136,7 +137,7 @@ describe('provider helpers & presets', () => {
         kind: 'gemini-live',
         baseUrl: 'https://generativelanguage.googleapis.com',
         model: 'gemini-2.5-flash-native-audio-latest',
-        keys: ['invalid-non-aiza-token'],
+        keys: ['invalid-non-google-token'],
         keyIndex: 0,
       },
       {
@@ -145,13 +146,16 @@ describe('provider helpers & presets', () => {
         kind: 'gemini-live',
         baseUrl: 'https://generativelanguage.googleapis.com',
         model: 'gemini-2.5-flash-native-audio-latest',
-        keys: ['AIzaSyValidUserKey1234567890'],
+        keys: ['AQ.Ab8RN6KnyqHtoQ1M7Whqr4Dxrs0BicXj3jGiZMAt_rtBF7IKg', 'AIzaSyValidUserKey1234567890'],
         keyIndex: 0,
       },
     ]);
 
     const geminiProviders = reconciled.filter((p) => p.kind === 'gemini-live');
     expect(geminiProviders.length).toBe(1);
-    expect(geminiProviders[0].keys).toEqual(['AIzaSyValidUserKey1234567890']);
+    expect(geminiProviders[0].keys).toEqual([
+      'AQ.Ab8RN6KnyqHtoQ1M7Whqr4Dxrs0BicXj3jGiZMAt_rtBF7IKg',
+      'AIzaSyValidUserKey1234567890',
+    ]);
   });
 });

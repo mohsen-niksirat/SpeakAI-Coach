@@ -6,7 +6,7 @@ import {
   TOOL_DECLARATIONS,
   handleToolCall,
 } from './voice-client';
-import { normalizeBaseUrl, cleanApiKey } from './providers';
+import { normalizeBaseUrl, cleanApiKey, isGoogleApiKey } from './providers';
 import { t } from '../i18n/store';
 import { ProviderError, asProviderError, classifyHttpStatus } from './errors';
 
@@ -242,15 +242,15 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private isGeminiRest(): boolean {
     const base = normalizeBaseUrl(this.provider.baseUrl);
     return (
-      /generativelanguage\.googleapis\.com/i.test(base) ||
-      /^AIza[0-9A-Za-z_-]{15,}/.test(this.apiKey)
+      /generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com/i.test(base) ||
+      isGoogleApiKey(this.apiKey)
     );
   }
 
   private async chatGeminiRest(): Promise<any> {
     const rawBase = normalizeBaseUrl(this.provider.baseUrl);
     const base =
-      /generativelanguage\.googleapis\.com/i.test(rawBase)
+      /generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com/i.test(rawBase)
         ? rawBase
         : 'https://generativelanguage.googleapis.com';
 
@@ -270,26 +270,50 @@ export class BrowserChatVoiceClient implements VoiceClient {
 
     let lastStatus = 500;
     let lastErrMsg = '';
+    const payload = JSON.stringify({
+      ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg }] } } : {}),
+      contents,
+      generationConfig: { temperature: 0.6, maxOutputTokens: 512 },
+    });
 
     for (const model of candidates) {
       if (this.stopped) return null;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 25000);
       try {
-        const res = await fetch(
-          `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg }] } } : {}),
-              contents,
-              generationConfig: { temperature: 0.6, maxOutputTokens: 512 },
-            }),
-            signal: ctrl.signal,
-          },
-        );
+        const endpointUrl = /aiplatform\.googleapis\.com/i.test(base)
+          ? `${base}/v1beta1/publishers/google/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`
+          : `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+        let res = await fetch(endpointUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          signal: ctrl.signal,
+        });
         clearTimeout(timer);
+
+        // If AQ. key received 401/403 on generativelanguage.googleapis.com, try Vertex AI Express Mode
+        if (!res.ok && (res.status === 401 || res.status === 403) && /^AQ\./i.test(this.apiKey) && !/aiplatform\.googleapis\.com/i.test(base)) {
+          const vCtrl = new AbortController();
+          const vTimer = setTimeout(() => vCtrl.abort(), 20000);
+          try {
+            const vRes = await fetch(
+              `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                signal: vCtrl.signal,
+              },
+            );
+            clearTimeout(vTimer);
+            if (vRes.ok) {
+              res = vRes;
+            }
+          } catch {
+            clearTimeout(vTimer);
+          }
+        }
 
         if (res.ok) {
           const data = await res.json();

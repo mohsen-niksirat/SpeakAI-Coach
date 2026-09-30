@@ -32,10 +32,42 @@ describe('connection-tester', () => {
     expect(formatKeyPreview('')).toBe('—');
   });
 
-  it('rejects non-AIza keys for Gemini provider before network call', async () => {
+  it('rejects non-Google keys for Gemini provider before network call', async () => {
     const res = await testSingleKey(geminiProvider, 'not-a-gemini-key');
     expect(res.ok).toBe(false);
-    expect(res.messageFa).toContain('AIzaSy');
+    expect(res.messageFa).toContain('AQ.');
+  });
+
+  it('accepts AQ.Ab8... Google Auth keys and falls back to generateContent / Vertex Express when ListModels returns 401', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 401,
+              message: 'Request had invalid authentication credentials. Expected OAuth 2 access token.',
+            },
+          }),
+          { status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: 'Hello' }] } }],
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const res = await testSingleKey(
+      { ...geminiProvider, kind: 'openai-chat' },
+      'AQ.Ab8RN6KnyqHtoQ1M7Whqr4Dxrs0BicXj3jGiZMAt_rtBF7IKg',
+    );
+    expect(res.ok).toBe(true);
+    expect(res.keyPreview).toBe('AQ.Ab8...7IKg');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('reports geo-block clearly when Google API returns User location is not supported', async () => {

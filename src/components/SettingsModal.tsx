@@ -18,6 +18,7 @@ import {
   KIND_DEFAULTS,
   PROVIDER_PRESETS,
   cleanApiKey,
+  isGoogleApiKey,
   detectPresetFromKey,
   detectPresetId,
   isVoiceCapable,
@@ -498,7 +499,7 @@ export const SettingsModal: React.FC<Props> = ({
                   firstK.length >= 10
                     ? `${firstK.slice(0, 6)}...${firstK.slice(-4)}`
                     : firstK || (lang === 'fa' ? 'بدون کلید' : 'No key');
-                const isGeminiKeyInvalid = p.kind === 'gemini-live' && !/^AIza/i.test(firstK);
+                const isGeminiKeyInvalid = p.kind === 'gemini-live' && !isGoogleApiKey(firstK);
                 const isTesting = !!testingProviders[p.id];
                 const testResult = providerTestResults[p.id];
 
@@ -542,8 +543,8 @@ export const SettingsModal: React.FC<Props> = ({
                         {isGeminiKeyInvalid && (
                           <div className="text-[10px] text-amber-400 mt-0.5">
                             {lang === 'fa'
-                              ? '⚠️ کلید ذخیره‌شده با AIzaSy شروع نمی‌شود؛ روی مداد (ویرایش) بزنید و کلید صحیح جمینای را وارد کنید.'
-                              : '⚠️ Stored key does not start with AIzaSy; click Edit to enter your Gemini key.'}
+                              ? '⚠️ فرمت کلید ذخیره‌شده با کلیدهای گوگل (AQ.Ab8... یا AIzaSy...) مطابقت ندارد؛ روی مداد (ویرایش) بزنید.'
+                              : '⚠️ Stored key does not match Google Gemini key format (AQ.Ab8... or AIzaSy...); click Edit.'}
                           </div>
                         )}
                       </div>

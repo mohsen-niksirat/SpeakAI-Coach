@@ -1,5 +1,5 @@
 import { Provider } from '../types';
-import { cleanApiKey, normalizeBaseUrl, sanitizeProvider } from './providers';
+import { cleanApiKey, isGoogleApiKey, normalizeBaseUrl, sanitizeProvider } from './providers';
 import { toWebSocketUrl } from './voice-client';
 
 export interface KeyTestResult {
@@ -105,17 +105,49 @@ async function probeGeminiWebSocket(baseUrl: string, apiKey: string, model: stri
   });
 }
 
+async function probeGeminiGenerateContent(url: string, apiKey: string): Promise<{ ok: boolean; status: number; errMsg: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
+        generationConfig: { maxOutputTokens: 2 },
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      return { ok: true, status: res.status, errMsg: '' };
+    }
+    const body = await res.json().catch(() => null);
+    return {
+      ok: false,
+      status: res.status,
+      errMsg: body?.error?.message || `HTTP ${res.status}`,
+    };
+  } catch {
+    clearTimeout(timer);
+    return { ok: false, status: 0, errMsg: 'network_error' };
+  }
+}
+
 async function testGeminiKey(provider: Provider, apiKey: string): Promise<KeyTestResult> {
   const start = Date.now();
   const keyPreview = formatKeyPreview(apiKey);
 
-  if (!/^AIza[0-9A-Za-z_-]{10,}/.test(apiKey)) {
+  if (!isGoogleApiKey(apiKey)) {
     return {
       keyPreview,
       ok: false,
       latencyMs: Date.now() - start,
-      messageFa: `❌ فرمت کلید («${keyPreview}») معتبر نیست؛ کلید Google AI Studio باید با AIzaSy شروع شود.`,
-      messageEn: `❌ Invalid key format ("${keyPreview}"); Google AI Studio keys must start with AIzaSy.`,
+      messageFa: `❌ فرمت کلید («${keyPreview}») معتبر نیست؛ کلیدهای گوگل جمینای با AQ. (فرمت جدید) یا AIzaSy (فرمت قدیمی) شروع می‌شوند.`,
+      messageEn: `❌ Invalid key format ("${keyPreview}"); Google Gemini keys start with AQ. or AIzaSy.`,
     };
   }
 
@@ -123,6 +155,8 @@ async function testGeminiKey(provider: Provider, apiKey: string): Promise<KeyTes
   const base = /api\.openai\.com|groq\.com|openrouter\.ai/i.test(rawBase)
     ? 'https://generativelanguage.googleapis.com'
     : rawBase;
+
+  let targetModel = stripModelsPrefix(provider.model || 'gemini-2.5-flash-native-audio-latest');
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -170,7 +204,7 @@ async function testGeminiKey(provider: Provider, apiKey: string): Promise<KeyTes
     if (res.status === 429 || /quota|rate.?limit/i.test(errMsg)) {
       return {
         keyPreview,
-        ok: false,
+        ok: true,
         warning: true,
         latencyMs,
         messageFa: `⚠️ کلید معتبر است اما سقف مصرف لحظه‌ای/روزانه آن پر شده است (429): ${errMsg}`,
@@ -178,16 +212,95 @@ async function testGeminiKey(provider: Provider, apiKey: string): Promise<KeyTes
       };
     }
 
+    // For AQ. keys (or restricted keys where ModelService.ListModels returns 401/403),
+    // probe Live WebSocket, GenerativeService.GenerateContent, and Vertex AI Express Mode before failing!
+    if (res.status === 401 || res.status === 403) {
+      if (provider.kind === 'gemini-live') {
+        const wsOk = await probeGeminiWebSocket(base, apiKey, targetModel);
+        if (wsOk) {
+          const totalMs = Date.now() - start;
+          return {
+            keyPreview,
+            ok: true,
+            latencyMs: totalMs,
+            model: targetModel,
+            mode: 'live-ws',
+            messageFa: `✅ اتصال عالی (${totalMs}ms) — کلید جمینای و WebSocket صدای زنده دوطرفه (${targetModel}) کاملاً برقرار است.`,
+            messageEn: `✅ Connected (${totalMs}ms) — Gemini key & Live Audio WebSocket (${targetModel}) verified.`,
+          };
+        }
+      }
+
+      const restModel = /native-audio|live/i.test(targetModel) ? 'gemini-2.5-flash' : targetModel;
+      const glProbe = await probeGeminiGenerateContent(
+        `${base}/v1beta/models/${encodeURIComponent(restModel)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        apiKey,
+      );
+      if (glProbe.ok || glProbe.status === 429) {
+        const totalMs = Date.now() - start;
+        return {
+          keyPreview,
+          ok: true,
+          warning: glProbe.status === 429,
+          latencyMs: totalMs,
+          model: restModel,
+          mode: 'hybrid-rest',
+          messageFa: `✅ اتصال برقرار است (${totalMs}ms) — کلید جمینای روی مدل ${restModel} تایید شد.`,
+          messageEn: `✅ Connected (${totalMs}ms) — Gemini key verified on ${restModel}.`,
+        };
+      }
+      if (/User location is not supported/i.test(glProbe.errMsg)) {
+        return {
+          keyPreview,
+          ok: false,
+          latencyMs: Date.now() - start,
+          messageFa:
+            '❌ خطای موقعیت جغرافیایی (User location is not supported): فیلترشکن شما دامنه googleapis.com را دور می‌زند (Split-Tunneling) یا سرور فعلی فیلترشکن برای API گوگل مسدود است. حالت Routing فیلترشکن را روی Global بگذارید یا سرور را تغییر دهید.',
+          messageEn:
+            '❌ User location is not supported: Your VPN is bypassing googleapis.com (Split-Tunneling) or its IP is blocked by Google API. Set VPN routing to Global or switch servers.',
+        };
+      }
+
+      if (/^AQ\./i.test(apiKey)) {
+        const vertexProbe = await probeGeminiGenerateContent(
+          `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${encodeURIComponent(restModel)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          apiKey,
+        );
+        if (vertexProbe.ok || vertexProbe.status === 429) {
+          const totalMs = Date.now() - start;
+          return {
+            keyPreview,
+            ok: true,
+            warning: vertexProbe.status === 429,
+            latencyMs: totalMs,
+            model: restModel,
+            mode: 'hybrid-rest',
+            messageFa: `✅ اتصال برقرار است (${totalMs}ms) — کلید Vertex/Gemini («${keyPreview}») تایید شد و آماده مکالمه است.`,
+            messageEn: `✅ Connected (${totalMs}ms) — Google Vertex/Gemini key ("${keyPreview}") verified.`,
+          };
+        }
+      }
+    }
+
+    if (/Expected OAuth 2 access token/i.test(errMsg) && /^AQ\./i.test(apiKey)) {
+      return {
+        keyPreview,
+        ok: false,
+        latencyMs: Date.now() - start,
+        messageFa: `❌ کلید گوگل («${keyPreview}»، طول: ${apiKey.length} کاراکتر) توسط سرور گوگل با خطای 401 رد شد: این کلید یا منقضی/غیرفعال شده، یا ناقص کپی شده، یا سرویس Generative Language API روی پروژه آن بسته است. لطفاً وارد aistudio.google.com/apikey شوید و یک کلید جدید بسازید و با دکمه Copy کامل کپی کنید.`,
+        messageEn: `❌ Google key ("${keyPreview}", length: ${apiKey.length} chars) was rejected by Google with HTTP 401: this key is either expired/revoked, truncated, or its Cloud project has Generative Language API disabled. Please create and copy a new key from aistudio.google.com/apikey.`,
+      };
+    }
+
     return {
       keyPreview,
       ok: false,
-      latencyMs,
+      latencyMs: Date.now() - start,
       messageFa: `❌ کلید توسط سرور گوگل رد شد (${res.status}): ${errMsg}`,
       messageEn: `❌ Key rejected by Google (${res.status}): ${errMsg}`,
     };
   }
 
-  let targetModel = stripModelsPrefix(provider.model || 'gemini-2.5-flash-native-audio-latest');
   try {
     const data = await res.json();
     const models: Array<{ name: string; methods: string[] }> = (data?.models ?? []).map((m: any) => ({
@@ -412,8 +525,8 @@ export async function testSingleKey(rawProvider: Provider, rawKey: string): Prom
   const provider = sanitizeProvider({ ...rawProvider, keys: [key], keyIndex: 0 });
   const isGemini =
     provider.kind === 'gemini-live' ||
-    /generativelanguage\.googleapis\.com/i.test(provider.baseUrl) ||
-    /^AIza[0-9A-Za-z_-]{10,}/.test(key);
+    /generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com/i.test(provider.baseUrl) ||
+    isGoogleApiKey(key);
 
   if (isGemini) {
     return testGeminiKey(provider, key);
