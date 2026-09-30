@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { parseReport, heuristicBand } from './session-report';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { parseReport, heuristicBand, generateSessionReport } from './session-report';
+import { Provider } from '../types';
 
 const valid = {
   overallBand: 6.5,
@@ -58,5 +59,40 @@ describe('heuristicBand', () => {
   it('clamps to the 5.5–8.5 range', () => {
     expect(heuristicBand(100, 0)).toBe(5.5);
     expect(heuristicBand(0, 100)).toBe(8.5);
+  });
+});
+
+describe('generateSessionReport key rotation', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rotates to the next key when the first key fails with a network error or 403', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(valid) } }],
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const provider: Provider = {
+      id: 'p1',
+      name: 'Test OpenAI',
+      kind: 'openai-chat',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+      keys: ['bad-key-1', 'good-key-2'],
+      keyIndex: 0,
+    };
+
+    const result = await generateSessionReport(provider, 'Speaker: Hello', []);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.usedKeyIndex).toBe(1);
+    expect(result.report.overallBand).toBe(6.5);
   });
 });

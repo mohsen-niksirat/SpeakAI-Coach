@@ -4,10 +4,19 @@ export class AudioRecorder {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private onDataCallback: ((base64Pcm: string) => void) | null = null;
+  private muted = false;
   public onVolumeChange: ((volume: number) => void) | null = null;
+
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (muted) {
+      this.onVolumeChange?.(0);
+    }
+  }
 
   async start(onData: (base64Pcm: string) => void, sampleRate = 16000): Promise<void> {
     this.onDataCallback = onData;
+    this.muted = false;
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
       sampleRate,
     });
@@ -26,6 +35,10 @@ export class AudioRecorder {
     this.processor = this.audioContext.createScriptProcessor(2048, 1, 1);
 
     this.processor.onaudioprocess = (e) => {
+      if (this.muted) {
+        this.onVolumeChange?.(0);
+        return;
+      }
       const inputData = e.inputBuffer.getChannelData(0);
 
       let sum = 0;
@@ -75,5 +88,7 @@ export class AudioRecorder {
     this.processor = null;
     this.source = null;
     this.onDataCallback = null;
+    this.muted = false;
+    this.onVolumeChange?.(0);
   }
 }

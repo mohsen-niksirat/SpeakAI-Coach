@@ -65,3 +65,8 @@ export function useT(): typeof t {
   useSyncExternalStore(subscribe, getLang, getLang);
   return t;
 }
+
+export function useLang(): [Lang, (next: Lang) => void] {
+  const current = useSyncExternalStore(subscribe, getLang, getLang);
+  return [current, setLang];
+}

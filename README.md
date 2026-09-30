@@ -17,10 +17,12 @@ Works with **Google Gemini Live**, **OpenAI Realtime**, and any compatible gatew
 - **Custom multi-provider setup** — add any number of providers with name, type, base URL, model, report model, and API keys. Voice provider and report provider can be different (e.g. Gemini for voice, OpenRouter for the report).
 - **Key rotation** — attach multiple keys per provider; on connection failures or 429/401 responses the app automatically rotates through your keys, and mid-session drops trigger a bounded auto-reconnect with rotation.
 - **Coach personas** — IELTS examiner, friendly native speaker, tech interviewer, debate partner.
-- **Live coaching tools** — vocabulary cards and grammar corrections are logged mid-conversation via function calling, without breaking the flow.
+- **IELTS Cue Card & Topic Simulator** — pick from curated IELTS Part 1, Part 2 Cue Cards (with bullet points and interactive 1-min prep / 2-min speaking timers), Part 3 discussions, Job Interview scenarios, Debate motions, or enter any Custom Topic.
+- **Live coaching tools & TTS pronunciation** — vocabulary cards (automatically deduplicated) and grammar corrections are logged mid-conversation via function calling, with 1-click native pronunciation (`🔊`) on every captured word and corrected phrase.
+- **Mic Mute / Unmute toggle** — pause or resume your microphone at any point during a live session without ending the call.
 - **Live transcript** — the full conversation is transcribed in real time.
-- **Session report** — after each session a text model evaluates the transcript against the four IELTS criteria (Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation) and returns an overall band with strengths and focus areas.
-- **Leitner-ready export** — vocabulary deck exports to CSV, JSON, or Anki text; the deck persists in your browser between sessions.
+- **Session report & Progress History** — after each session a text model evaluates the transcript against the four IELTS criteria (Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation), and saves your report in a local **Practice History & Band Progress** tracker.
+- **Leitner-Pro-Max & Anki export** — 1-click export directly to **Leitner-Pro-Max** JSON deck format, plus CSV, JSON, and Anki text; the deck persists in your browser between sessions.
 - **English & Persian UI** — switch languages from the header; Persian layout is fully RTL.
 - **Client-first & BYOK** — no backend, no accounts; all keys live in browser localStorage.
 

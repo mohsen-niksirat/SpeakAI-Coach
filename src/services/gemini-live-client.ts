@@ -1,5 +1,12 @@
 import { CoachRole, VoiceName, Provider } from '../types';
-import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
+import {
+  VoiceClient,
+  VoiceClientCallbacks,
+  getRolePrompt,
+  toWebSocketUrl,
+  TOOL_DECLARATIONS,
+  handleToolCall,
+} from './voice-client';
 import { t } from '../i18n/store';
 import { ProviderError, asProviderError, classifyCloseCode, classifyHttpStatus } from './errors';
 
@@ -59,6 +66,7 @@ export class GeminiLiveClient implements VoiceClient {
   private apiKey: string;
   private role: CoachRole;
   private voice: VoiceName;
+  private topicPrompt?: string;
 
   private stage = 0;
   private modelIdx = 0;
@@ -72,12 +80,20 @@ export class GeminiLiveClient implements VoiceClient {
   private notices: string[] = [];
   private disposed = false;
 
-  constructor(callbacks: VoiceClientCallbacks, provider: Provider, apiKey: string, role: CoachRole, voice: VoiceName) {
+  constructor(
+    callbacks: VoiceClientCallbacks,
+    provider: Provider,
+    apiKey: string,
+    role: CoachRole,
+    voice: VoiceName,
+    topicPrompt?: string,
+  ) {
     this.callbacks = callbacks;
     this.provider = provider;
     this.apiKey = apiKey;
     this.role = role;
     this.voice = voice;
+    this.topicPrompt = topicPrompt;
   }
 
   connect() {
@@ -172,7 +188,9 @@ export class GeminiLiveClient implements VoiceClient {
   }
 
   private openSocket() {
-    const base = (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const base = toWebSocketUrl(
+      (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, ''),
+    );
     const url = `${base}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
 
     this.ws = new WebSocket(url);
@@ -251,7 +269,7 @@ export class GeminiLiveClient implements VoiceClient {
     const setup: Record<string, unknown> = {
       model: `models/${this.effectiveModel}`,
       systemInstruction: {
-        parts: [{ text: getRolePrompt(this.role) }],
+        parts: [{ text: getRolePrompt(this.role, this.topicPrompt) }],
       },
     };
 
@@ -323,6 +341,23 @@ export class GeminiLiveClient implements VoiceClient {
         if (combined) this.callbacks.onNotice?.(combined);
         this.notices = [];
         this.callbacks.onSetupComplete();
+        this.ws?.send(
+          JSON.stringify({
+            clientContent: {
+              turns: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: '(The speaking session has just begun. Greet the student warmly in English according to your persona and ask your opening question.)',
+                    },
+                  ],
+                },
+              ],
+              turnComplete: true,
+            },
+          }),
+        );
         return;
       }
 

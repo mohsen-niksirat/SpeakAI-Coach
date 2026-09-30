@@ -60,6 +60,9 @@ export class AudioPlayer {
 
     source.onended = () => {
       this.activeSources = this.activeSources.filter((s) => s !== source);
+      if (this.activeSources.length === 0) {
+        this.onVolumeChange?.(0);
+      }
     };
   }
 
@@ -74,6 +77,7 @@ export class AudioPlayer {
     if (this.audioContext) {
       this.scheduledTime = this.audioContext.currentTime;
     }
+    this.onVolumeChange?.(0);
   }
 
   close() {

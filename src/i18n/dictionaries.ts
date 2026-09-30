@@ -81,10 +81,34 @@ export const en = {
   'orb.ready': 'Ready',
   'orb.speaking': 'Speaking',
   'orb.listening': 'Listening',
+  'orb.muted': 'Muted',
+
+  // Mic & Topic controls
+  'actions.mute': 'Mute Mic',
+  'actions.unmute': 'Unmute Mic',
+  'topic.label': 'Session Topic / Cue Card',
+  'topic.customOption': '✍️ Custom Topic / Prompt…',
+  'topic.customPlaceholder': 'Describe what you want to practice (e.g. AWS system design, IELTS Part 2 about a childhood toy…)',
+  'cue.title': 'IELTS Part 2 Cue Card',
+  'cue.youShouldSay': 'You should say:',
+  'cue.prepTimer': '1-Min Prep',
+  'cue.speakTimer': '2-Min Speak',
+  'cue.resetTimer': 'Reset',
+
+  // History modal
+  'history.button': 'History',
+  'history.title': 'Practice History & Band Progress',
+  'history.empty': 'Complete your first speaking session to start tracking your IELTS Band progress over time.',
+  'history.sessions': 'Sessions',
+  'history.avgBand': 'Avg Band',
+  'history.totalTime': 'Total Time',
+  'history.clear': 'Clear History',
+  'history.viewReport': 'View Report',
 
   // Feedback panel
   'feedback.title': 'Live Corrections ({n})',
   'feedback.empty': 'Speak naturally. Any grammar or phrasing flaws will be gently noted here.',
+  'feedback.listen': 'Listen to correct phrasing',
 
   // Vocab panel
   'vocab.title': 'Captured Vocab ({n})',
@@ -93,6 +117,9 @@ export const en = {
   'vocab.exportCsv': 'Export CSV',
   'vocab.exportJson': 'Export JSON',
   'vocab.exportAnki': 'Export Anki',
+  'vocab.exportLeitner': 'Export for Leitner-Pro-Max',
+  'vocab.listen': 'Listen to pronunciation',
+  'vocab.deleteCard': 'Remove word',
 
   // Transcript
   'transcript.title': 'Live Transcript',
@@ -220,10 +247,34 @@ export const fa: Record<TranslationKey, string> = {
   'orb.ready': 'آماده',
   'orb.speaking': 'در حال صحبت',
   'orb.listening': 'در حال گوش دادن',
+  'orb.muted': 'میکروفون بی‌صدا',
+
+  // Mic & Topic controls
+  'actions.mute': 'بی‌صدا کردن میکروفون',
+  'actions.unmute': 'وصل کردن میکروفون',
+  'topic.label': 'موضوع تمرین / کارت آیلتس',
+  'topic.customOption': '✍️ موضوع دلخواه…',
+  'topic.customPlaceholder': 'موضوع مورد نظرت را بنویس (مثلاً مصاحبه React یا بخش ۲ آیلتس درباره سفر…)',
+  'cue.title': 'کارت موضوع بخش ۲ آیلتس (Cue Card)',
+  'cue.youShouldSay': 'مواردی که باید بگویی:',
+  'cue.prepTimer': '۱ دقیقه آماده‌سازی',
+  'cue.speakTimer': '۲ دقیقه صحبت',
+  'cue.resetTimer': 'ریست',
+
+  // History modal
+  'history.button': 'تاریخچه',
+  'history.title': 'تاریخچه جلسات و روند پیشرفت آیلتس',
+  'history.empty': 'اولین جلسه مکالمه‌ات را کامل کن تا نمودار پیشرفت نمره آیلتس اینجا ثبت شود.',
+  'history.sessions': 'جلسات',
+  'history.avgBand': 'میانگین نمره',
+  'history.totalTime': 'مجموع تمرین',
+  'history.clear': 'پاک کردن تاریخچه',
+  'history.viewReport': 'مشاهده گزارش',
 
   // Feedback panel
   'feedback.title': 'تصحیح‌های زنده ({n})',
   'feedback.empty': 'طبیعی صحبت کن؛ هر اشتباه دستوری یا اصطلاحی همین‌جا با ملایمت ثبت می‌شود.',
+  'feedback.listen': 'شنیدن تلفظ جمله صحیح',
 
   // Vocab panel
   'vocab.title': 'واژگان ثبت‌شده ({n})',
@@ -232,6 +283,9 @@ export const fa: Record<TranslationKey, string> = {
   'vocab.exportCsv': 'خروجی CSV',
   'vocab.exportJson': 'خروجی JSON',
   'vocab.exportAnki': 'خروجی Anki',
+  'vocab.exportLeitner': 'خروجی مستقیم برای Leitner-Pro-Max',
+  'vocab.listen': 'شنیدن تلفظ واژه',
+  'vocab.deleteCard': 'حذف این واژه',
 
   // Transcript
   'transcript.title': 'متن زنده گفتگو',

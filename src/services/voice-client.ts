@@ -17,31 +17,45 @@ export interface VoiceClientCallbacks {
 export interface VoiceClient {
   connect(): void;
   sendAudioChunk(base64Pcm: string): void;
+  setMuted?(muted: boolean): void;
   disconnect(): void;
 }
 
-export function getRolePrompt(role: CoachRole): string {
+export function toWebSocketUrl(url: string): string {
+  return url.trim().replace(/^http(s?):\/\//i, 'ws$1://');
+}
+
+export function getRolePrompt(role: CoachRole, topicPrompt?: string): string {
+  let base: string;
   switch (role) {
     case 'ielts_examiner':
-      return `You are a certified, friendly yet rigorous IELTS Speaking Examiner.
+      base = `You are a certified, friendly yet rigorous IELTS Speaking Examiner.
 Conduct a realistic IELTS Speaking interview (Part 1, Part 2, or Part 3).
 Speak naturally, ask one question at a time, and do not make speech turns too long.
 Keep the conversation engaging. Silently invoke 'record_vocabulary' when using or observing high-band words,
 and 'flag_grammar_mistake' whenever the candidate makes a grammatical or collocation error.`;
+      break;
     case 'job_interview':
-      return `You are an experienced HR and Technical Interviewer at an international tech company.
+      base = `You are an experienced HR and Technical Interviewer at an international tech company.
 Conduct a professional English behavioral and technical interview. Keep questions focused and realistic.
 Record new vocabulary and grammar flaws silently via tools.`;
+      break;
     case 'debate_partner':
-      return `You are an articulate, respectful debate sparring partner.
+      base = `You are an articulate, respectful debate sparring partner.
 Choose or discuss controversial yet friendly topics, challenge the user's opinions constructively,
 and prompt them to defend their thoughts with high-level vocabulary.`;
+      break;
     case 'friendly_chat':
     default:
-      return `You are a kind, engaging native English friend named Alex.
+      base = `You are a kind, engaging native English friend named Alex.
 Have a warm, everyday conversation about hobbies, culture, daily life, or technology.
 Keep sentences natural, concise, and encourage the user to speak more.`;
+      break;
   }
+
+  const trimmedTopic = topicPrompt?.trim();
+  if (!trimmedTopic) return base;
+  return `${base}\n\nSESSION TOPIC / TASK:\n${trimmedTopic}`;
 }
 
 export const TOOL_DECLARATIONS = [

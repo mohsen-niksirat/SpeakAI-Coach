@@ -80,11 +80,24 @@ class HttpStatusError extends Error {
   }
 }
 
+class ReportNetworkError extends Error {
+  constructor(message = 'Report request timed out after 45s.') {
+    super(message);
+  }
+}
+
 function isRetryable(err: unknown): boolean {
   if (err instanceof HttpStatusError) {
-    return err.status === 401 || err.status === 429 || err.status === 500 || err.status === 502 || err.status === 503;
+    return (
+      err.status === 401 ||
+      err.status === 403 ||
+      err.status === 429 ||
+      err.status === 500 ||
+      err.status === 502 ||
+      err.status === 503
+    );
   }
-  return err instanceof TypeError; // network failure
+  return err instanceof TypeError || err instanceof ReportNetworkError;
 }
 
 async function callGemini(baseUrl: string, model: string, apiKey: string, prompt: string): Promise<string> {
@@ -106,7 +119,7 @@ async function callGemini(baseUrl: string, model: string, apiKey: string, prompt
       signal: ctrl.signal,
     });
   } catch {
-    throw new Error('Report request timed out after 45s.');
+    throw new ReportNetworkError('Report request timed out after 45s.');
   } finally {
     clearTimeout(timer);
   }
@@ -142,7 +155,7 @@ async function callOpenAIChat(baseUrl: string, model: string, apiKey: string, pr
       signal: ctrl.signal,
     });
   } catch {
-    throw new Error('Report request timed out after 45s.');
+    throw new ReportNetworkError('Report request timed out after 45s.');
   } finally {
     clearTimeout(timer);
   }

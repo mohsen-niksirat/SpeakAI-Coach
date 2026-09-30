@@ -6,17 +6,65 @@ import { VocabCardList } from './components/VocabCardList';
 import { TranscriptPanel } from './components/TranscriptPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
+import { CueCardWidget } from './components/CueCardWidget';
+import { HistoryModal } from './components/HistoryModal';
 import { CoachRole, ProviderSettings } from './types';
 import { loadProviderSettings, saveProviderSettings } from './services/providers';
-import { useT, getLang, setLang } from './i18n/store';
-import { Mic, PhoneOff, Settings, Sparkles, Loader2, AlertTriangle, Info, Globe } from 'lucide-react';
+import { PRACTICE_TOPICS, buildCustomTopic, getSuggestedCategoriesForRole } from './services/topics';
+import { useT, useLang } from './i18n/store';
+import {
+  Mic,
+  MicOff,
+  PhoneOff,
+  Settings,
+  Sparkles,
+  Loader2,
+  AlertTriangle,
+  Info,
+  Globe,
+  History,
+  BookOpen,
+} from 'lucide-react';
+
+const PREFS_STORAGE_KEY = 'speakai_prefs';
+
+function loadPrefs(): { role: CoachRole; voice: string; topicId: string; customTopic: string } {
+  try {
+    const raw = localStorage.getItem(PREFS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      role: parsed.role || 'ielts_examiner',
+      voice: parsed.voice || 'Aoede',
+      topicId: parsed.topicId || 'free',
+      customTopic: parsed.customTopic || '',
+    };
+  } catch {
+    return { role: 'ielts_examiner', voice: 'Aoede', topicId: 'free', customTopic: '' };
+  }
+}
 
 export default function App() {
   const t = useT();
+  const [lang, setLangState] = useLang();
   const [settings, setSettings] = useState<ProviderSettings>(loadProviderSettings);
-  const [role, setRole] = useState<CoachRole>('ielts_examiner');
-  const [voice, setVoice] = useState('Aoede');
+  const initialPrefs = loadPrefs();
+  const [role, setRole] = useState<CoachRole>(initialPrefs.role);
+  const [voice, setVoice] = useState(initialPrefs.voice);
+  const [topicId, setTopicId] = useState<string>(initialPrefs.topicId);
+  const [customTopicText, setCustomTopicText] = useState<string>(initialPrefs.customTopic);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PREFS_STORAGE_KEY,
+        JSON.stringify({ role, voice, topicId, customTopic: customTopicText }),
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [role, voice, topicId, customTopicText]);
 
   const updateSettings = (next: ProviderSettings) => {
     setSettings(next);
@@ -31,10 +79,16 @@ export default function App() {
     notice,
     clearNotice,
     isTalking,
+    isMuted,
+    toggleMute,
     micVolume,
     aiVolume,
     vocabCards,
     clearVocab,
+    deleteVocabCard,
+    historyEntries,
+    clearHistory,
+    openHistoricalReport,
     feedbackLogs,
     transcript,
     sessionSeconds,
@@ -54,13 +108,30 @@ export default function App() {
     }
   }, [settings.providers.length]);
 
+  const allowedCategories = getSuggestedCategoriesForRole(role);
+  const availableTopics = PRACTICE_TOPICS.filter((tp) => allowedCategories.includes(tp.category));
+  const selectedTopic =
+    topicId === 'custom'
+      ? buildCustomTopic(customTopicText)
+      : availableTopics.find((tp) => tp.id === topicId) || PRACTICE_TOPICS[0];
+
+  const handleStart = () => {
+    const title =
+      selectedTopic.id === 'free'
+        ? undefined
+        : lang === 'fa'
+        ? selectedTopic.titleFa
+        : selectedTopic.title;
+    startSession(role, voice, selectedTopic.prompt, title);
+  };
+
   const minutes = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
   const seconds = String(sessionSeconds % 60).padStart(2, '0');
   const showTranscript = isConnected || transcript.length > 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-between p-4 md:p-8 max-w-6xl mx-auto">
-      <header className="flex items-center justify-between pb-4 border-b border-slate-800/80">
+      <header className="flex items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
             <Sparkles className="w-4 h-4" />
@@ -73,7 +144,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {isConnected && (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
@@ -81,16 +152,30 @@ export default function App() {
             </div>
           )}
           <button
-            onClick={() => setLang(getLang() === 'en' ? 'fa' : 'en')}
-            className="flex items-center gap-1.5 p-2.5 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition text-xs font-semibold"
+            onClick={() => setIsHistoryOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition text-xs font-medium"
+            title={t('history.title')}
+          >
+            <History className="w-4 h-4 text-indigo-400" />
+            <span className="hidden sm:inline">{t('history.button')}</span>
+            {historyEntries.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-indigo-600/30 text-indigo-300 text-[10px] font-bold">
+                {historyEntries.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setLangState(lang === 'en' ? 'fa' : 'en')}
+            className="flex items-center gap-1.5 p-2 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition text-xs font-semibold"
             title="Language / زبان"
           >
             <Globe className="w-4 h-4" />
-            {getLang() === 'en' ? 'فا' : 'EN'}
+            {lang === 'en' ? 'فا' : 'EN'}
           </button>
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="p-2.5 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition"
+            className="p-2 rounded-xl bg-surface border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition"
+            title={t('settings.title')}
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -103,18 +188,53 @@ export default function App() {
             <LiveFeedbackPanel logs={feedbackLogs} />
           </div>
 
-          <div className="flex flex-col items-center justify-center order-1 lg:order-2">
+          <div className="flex flex-col items-center justify-center order-1 lg:order-2 w-full max-w-md">
+            {/* Topic / IELTS Cue Card Picker */}
+            <div className="w-full mb-2">
+              <label className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
+                <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                {t('topic.label')}
+              </label>
+              <select
+                value={selectedTopic.id}
+                disabled={isConnected || phase === 'connecting'}
+                onChange={(e) => setTopicId(e.target.value)}
+                className="w-full bg-surface border border-slate-800 hover:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500 disabled:opacity-60 transition"
+              >
+                {availableTopics.map((tp) => (
+                  <option key={tp.id} value={tp.id}>
+                    {lang === 'fa' ? tp.titleFa : tp.title}
+                  </option>
+                ))}
+                <option value="custom">{t('topic.customOption')}</option>
+              </select>
+
+              {topicId === 'custom' && (
+                <input
+                  type="text"
+                  value={customTopicText}
+                  disabled={isConnected || phase === 'connecting'}
+                  onChange={(e) => setCustomTopicText(e.target.value)}
+                  placeholder={t('topic.customPlaceholder')}
+                  className="mt-2 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500"
+                />
+              )}
+            </div>
+
+            <CueCardWidget topic={selectedTopic} />
+
             <VisualizerOrb
               isConnected={isConnected}
               isAiTalking={isTalking}
               aiVolume={aiVolume}
               micVolume={micVolume}
+              isMuted={isMuted}
             />
 
-            <div className="mt-4 flex items-center gap-4">
+            <div className="mt-2 flex items-center gap-3 flex-wrap justify-center">
               {!isConnected && phase !== 'connecting' ? (
                 <button
-                  onClick={() => startSession(role, voice)}
+                  onClick={handleStart}
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition hover:scale-105 active:scale-95"
                 >
                   <Mic className="w-4 h-4" />
@@ -129,13 +249,27 @@ export default function App() {
                   {t('actions.connecting')}
                 </button>
               ) : (
-                <button
-                  onClick={endSession}
-                  className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm shadow-xl shadow-rose-600/30 transition hover:scale-105 active:scale-95"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                  {t('actions.end')}
-                </button>
+                <>
+                  <button
+                    onClick={toggleMute}
+                    className={`flex items-center gap-2 px-4 py-3.5 rounded-2xl font-semibold text-xs border transition ${
+                      isMuted
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+                        : 'bg-surface hover:bg-slate-800 text-slate-200 border-slate-700'
+                    }`}
+                    title={isMuted ? t('actions.unmute') : t('actions.mute')}
+                  >
+                    {isMuted ? <MicOff className="w-4 h-4 text-amber-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                    {isMuted ? t('actions.unmute') : t('actions.mute')}
+                  </button>
+                  <button
+                    onClick={endSession}
+                    className="flex items-center gap-2.5 px-5 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm shadow-xl shadow-rose-600/30 transition hover:scale-105 active:scale-95"
+                  >
+                    <PhoneOff className="w-4 h-4" />
+                    {t('actions.end')}
+                  </button>
+                </>
               )}
             </div>
 
@@ -167,7 +301,7 @@ export default function App() {
           </div>
 
           <div className="w-full lg:w-1/3 order-3 h-64 lg:h-96">
-            <VocabCardList cards={vocabCards} onClear={clearVocab} />
+            <VocabCardList cards={vocabCards} onClear={clearVocab} onDeleteCard={deleteVocabCard} />
           </div>
         </div>
 
@@ -191,6 +325,17 @@ export default function App() {
         onSelectRole={setRole}
         voice={voice}
         onSelectVoice={setVoice}
+      />
+
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        entries={historyEntries}
+        onClearHistory={clearHistory}
+        onSelectEntry={(entry) => {
+          setIsHistoryOpen(false);
+          openHistoricalReport(entry);
+        }}
       />
 
       <SessionSummaryModal

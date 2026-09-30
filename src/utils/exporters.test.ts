@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCsv, buildJson, buildAnki, csvEscape } from './exporters';
+import { buildCsv, buildJson, buildAnki, buildLeitnerProJson, csvEscape } from './exporters';
 import { VocabCard } from '../types';
 
 const cards: VocabCard[] = [
@@ -62,5 +62,22 @@ describe('buildAnki', () => {
     const [front, ...rest] = buildAnki(weird).split('\t');
     expect(front).toBe('serendipity');
     expect(rest.join('\t')).not.toContain('\t');
+  });
+});
+
+describe('buildLeitnerProJson', () => {
+  it('exports a Leitner-Pro-Max compatible v2 deck with box=1 and SpeakAI tag', () => {
+    const parsed = JSON.parse(buildLeitnerProJson(cards));
+    expect(parsed.version).toBe(2);
+    expect(parsed.source).toBe('SpeakAI-Coach');
+    expect(parsed.cards).toHaveLength(2);
+    expect(parsed.cards[0]).toMatchObject({
+      word: 'serendipity',
+      meaning: 'a fortunate discovery made by accident',
+      phonetic: '/ˌsɛrənˈdɪpɪti/',
+      example: 'It was pure serendipity that we met.',
+      tag: 'SpeakAI',
+      box: 1,
+    });
   });
 });

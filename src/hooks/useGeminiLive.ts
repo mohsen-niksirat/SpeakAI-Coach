@@ -20,11 +20,14 @@ import {
   ConnectionPhase,
   ReportStatus,
   SessionReport,
+  SessionHistoryEntry,
   Provider,
   ProviderSettings,
 } from '../types';
 
 const VOCAB_STORAGE_KEY = 'speakai_vocab';
+const HISTORY_STORAGE_KEY = 'speakai_history';
+const MAX_HISTORY_ITEMS = 50;
 const CONNECT_TIMEOUT_MS = 25000; // safety net: includes Gemini's REST preflight and model fallback hops
 
 function loadPersistedVocab(): VocabCard[] {
@@ -37,6 +40,30 @@ function loadPersistedVocab(): VocabCard[] {
   }
 }
 
+function loadPersistedHistory(): SessionHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildFallbackReport(band: number): SessionReport {
+  return {
+    overallBand: band,
+    criteria: [
+      { key: 'fluency', label: 'Fluency & Coherence', band, comment: 'Estimated from session duration and turns.' },
+      { key: 'lexical', label: 'Lexical Resource', band, comment: 'Estimated from captured vocabulary.' },
+      { key: 'grammar', label: 'Grammatical Range & Accuracy', band, comment: 'Estimated from logged corrections.' },
+      { key: 'pronunciation', label: 'Pronunciation', band, comment: 'Heuristic estimate from transcript.' },
+    ],
+    strengths: ['Completed a live English speaking practice session.'],
+    improvements: ['Configure a Report Provider in Settings for full AI criterion feedback.'],
+  };
+}
+
 function inputRateFor(provider: Provider): number {
   return provider.kind === 'gemini-live' ? 16000 : 24000;
 }
@@ -47,14 +74,15 @@ function createVoiceClient(
   role: CoachRole,
   voice: VoiceName,
   callbacks: VoiceClientCallbacks,
+  topicPrompt?: string,
 ): VoiceClient {
   if (provider.kind === 'openai-realtime') {
-    return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice);
+    return new OpenAIRealtimeClient(callbacks, provider, apiKey, role, voice, topicPrompt);
   }
   if (provider.kind === 'openai-chat') {
-    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice);
+    return new BrowserChatVoiceClient(callbacks, provider, apiKey, role, voice, topicPrompt);
   }
-  return new GeminiLiveClient(callbacks, provider, apiKey, role, voice);
+  return new GeminiLiveClient(callbacks, provider, apiKey, role, voice, topicPrompt);
 }
 
 export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (next: ProviderSettings) => void) {
@@ -62,9 +90,11 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [micVolume, setMicVolume] = useState(0);
   const [aiVolume, setAiVolume] = useState(0);
   const [vocabCards, setVocabCards] = useState<VocabCard[]>(loadPersistedVocab);
+  const [historyEntries, setHistoryEntries] = useState<SessionHistoryEntry[]>(loadPersistedHistory);
   const [sessionVocabCount, setSessionVocabCount] = useState(0);
   const [feedbackLogs, setFeedbackLogs] = useState<FeedbackLog[]>([]);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -82,6 +112,9 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
   const sessionActiveRef = useRef(false);
   const captureStartedRef = useRef(false);
   const secondsRef = useRef(0);
+  const sessionVocabCountRef = useRef(0);
+  const activeRoleRef = useRef<CoachRole>('ielts_examiner');
+  const activeTopicTitleRef = useRef<string | undefined>(undefined);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const feedbackLogsRef = useRef<FeedbackLog[]>([]);
   const reportProviderRef = useRef<Provider | null>(null);
@@ -105,6 +138,14 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       // storage may be unavailable (private mode); deck simply won't persist
     }
   }, [vocabCards]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyEntries));
+    } catch {
+      // ignore storage errors
+    }
+  }, [historyEntries]);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -157,6 +198,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       teardownRefs();
       setPhase('idle');
       setIsTalking(false);
+      setIsMuted(false);
       setMicVolume(0);
       setAiVolume(0);
       setError(message);
@@ -164,7 +206,17 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     [teardownRefs],
   );
 
-  const startSession = async (role: CoachRole, voice: VoiceName) => {
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      recorderRef.current?.setMuted(next);
+      clientRef.current?.setMuted?.(next);
+      if (next) setMicVolume(0);
+      return next;
+    });
+  }, []);
+
+  const startSession = async (role: CoachRole, voice: VoiceName, topicPrompt?: string, topicTitle?: string) => {
     if (sessionActiveRef.current) return;
 
     const voiceProvider = findProvider(settingsRef.current, settingsRef.current.voiceProviderId);
@@ -178,12 +230,16 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     setNotice(null);
     setReport(null);
     setReportStatus('idle');
+    setIsMuted(false);
     setFeedbackLogs([]);
     setTranscript([]);
     transcriptRef.current = [];
     setSessionSeconds(0);
     setSessionVocabCount(0);
+    sessionVocabCountRef.current = 0;
     secondsRef.current = 0;
+    activeRoleRef.current = role;
+    activeTopicTitleRef.current = topicTitle;
     reportProviderRef.current = reportProvider;
     sessionActiveRef.current = true;
     reconnectCountRef.current = 0;
@@ -203,16 +259,19 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     }
 
     const beginCapture = async (provider: Provider) => {
-      recorderRef.current = new AudioRecorder();
-      recorderRef.current.onVolumeChange = (vol) => {
-        setMicVolume(vol);
-      };
-      await recorderRef.current.start(
-        (chunk) => {
-          clientRef.current?.sendAudioChunk(chunk);
-        },
-        inputRateFor(provider),
-      );
+      // BrowserChatVoiceClient uses SpeechRecognition directly; avoid opening a second getUserMedia stream
+      if (provider.kind !== 'openai-chat') {
+        recorderRef.current = new AudioRecorder();
+        recorderRef.current.onVolumeChange = (vol) => {
+          setMicVolume(vol);
+        };
+        await recorderRef.current.start(
+          (chunk) => {
+            clientRef.current?.sendAudioChunk(chunk);
+          },
+          inputRateFor(provider),
+        );
+      }
       timerRef.current = window.setInterval(() => {
         secondsRef.current += 1;
         setSessionSeconds(secondsRef.current);
@@ -314,7 +373,13 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         },
         onVocabDiscovered: (card) => {
           if (stale()) return;
-          setVocabCards((prev) => [card, ...prev]);
+          const cleanWord = card.word.trim().toLowerCase();
+          if (!cleanWord) return;
+          setVocabCards((prev) => {
+            if (prev.some((c) => c.word.trim().toLowerCase() === cleanWord)) return prev;
+            return [card, ...prev];
+          });
+          sessionVocabCountRef.current += 1;
           setSessionVocabCount((n) => n + 1);
         },
         onFeedbackGiven: (feedback) => {
@@ -341,7 +406,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
       };
 
       setPhase('connecting');
-      clientRef.current = createVoiceClient(provider, activeKey(provider), role, voice, callbacks);
+      clientRef.current = createVoiceClient(provider, activeKey(provider), role, voice, callbacks, topicPrompt);
       clientRef.current.connect();
 
       if (!dead) {
@@ -354,6 +419,31 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     startAttempt(voiceProvider, 0);
   };
 
+  const recordHistoryItem = useCallback(
+    (
+      durationSeconds: number,
+      wordsRecordedCount: number,
+      correctionsCount: number,
+      reportObj: SessionReport,
+      status: 'ready' | 'failed',
+    ) => {
+      const entry: SessionHistoryEntry = {
+        id: Math.random().toString(36).slice(2, 10),
+        dateIso: new Date().toISOString(),
+        role: activeRoleRef.current,
+        topicTitle: activeTopicTitleRef.current,
+        durationSeconds,
+        wordsRecordedCount,
+        correctionsCount,
+        overallBand: reportObj.overallBand,
+        reportStatus: status,
+        report: reportObj,
+      };
+      setHistoryEntries((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ITEMS));
+    },
+    [],
+  );
+
   const endSession = useCallback(() => {
     if (!sessionActiveRef.current) return;
     sessionActiveRef.current = false;
@@ -362,11 +452,13 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     teardownRefs();
     setPhase('idle');
     setIsTalking(false);
+    setIsMuted(false);
     setMicVolume(0);
     setAiVolume(0);
     setSessionSeconds(secondsRef.current);
 
     const seconds = secondsRef.current;
+    const vocabCount = sessionVocabCountRef.current;
     const entries = transcriptRef.current;
     const corrections = feedbackLogsRef.current;
     const reportProvider = reportProviderRef.current;
@@ -377,10 +469,12 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
         .join('\n');
 
       setShowSummary(true);
+      const fallbackBand = Math.round(heuristicBand(corrections.length, vocabCount) * 2) / 2;
 
       if (!reportProvider) {
         setReport(null);
         setReportStatus('failed');
+        recordHistoryItem(seconds, vocabCount, corrections.length, buildFallbackReport(fallbackBand), 'failed');
         return;
       }
 
@@ -393,6 +487,7 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           if (reportSessionSeq !== sessionSeqRef.current) return; // a new session owns the UI now
           setReport(result.report);
           setReportStatus('ready');
+          recordHistoryItem(seconds, vocabCount, corrections.length, result.report, 'ready');
           if (result.usedKeyIndex !== reportProvider.keyIndex) {
             persistProviderKey({ ...reportProvider, keyIndex: result.usedKeyIndex });
           }
@@ -401,15 +496,38 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
           if (reportSessionSeq !== sessionSeqRef.current) return;
           console.error('Session report generation failed:', err);
           setReportStatus('failed');
+          recordHistoryItem(seconds, vocabCount, corrections.length, buildFallbackReport(fallbackBand), 'failed');
         });
     }
-  }, [teardownRefs, persistProviderKey]);
+  }, [teardownRefs, persistProviderKey, recordHistoryItem]);
 
   const clearError = useCallback(() => setError(null), []);
 
   const clearNotice = useCallback(() => setNotice(null), []);
 
   const clearVocab = useCallback(() => setVocabCards([]), []);
+
+  const deleteVocabCard = useCallback((id: string) => {
+    setVocabCards((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const clearHistory = useCallback(() => setHistoryEntries([]), []);
+
+  const openHistoricalReport = useCallback((entry: SessionHistoryEntry) => {
+    setSessionSeconds(entry.durationSeconds);
+    setSessionVocabCount(entry.wordsRecordedCount);
+    setFeedbackLogs(Array.from({ length: entry.correctionsCount }, (_, i) => ({
+      id: `hist_${i}`,
+      userSpoke: '',
+      betterAlternative: '',
+      explanation: '',
+      type: 'grammar',
+      timestamp: '',
+    })));
+    setReport(entry.reportStatus === 'ready' ? entry.report : null);
+    setReportStatus(entry.reportStatus);
+    setShowSummary(true);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -434,10 +552,16 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
     notice,
     clearNotice,
     isTalking,
+    isMuted,
+    toggleMute,
     micVolume,
     aiVolume,
     vocabCards,
     clearVocab,
+    deleteVocabCard,
+    historyEntries,
+    clearHistory,
+    openHistoricalReport,
     feedbackLogs,
     transcript,
     sessionSeconds,

@@ -1,5 +1,12 @@
 import { CoachRole, VoiceName, Provider } from '../types';
-import { VoiceClient, VoiceClientCallbacks, getRolePrompt, TOOL_DECLARATIONS, handleToolCall } from './voice-client';
+import {
+  VoiceClient,
+  VoiceClientCallbacks,
+  getRolePrompt,
+  toWebSocketUrl,
+  TOOL_DECLARATIONS,
+  handleToolCall,
+} from './voice-client';
 import { t } from '../i18n/store';
 import { ProviderError, classifyCloseCode, classifyHttpStatus, ProviderErrorKind } from './errors';
 
@@ -16,6 +23,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
   private apiKey: string;
   private role: CoachRole;
   private voice: VoiceName;
+  private topicPrompt?: string;
 
   private sessionReady = false;
   private updateSent = false;
@@ -23,16 +31,24 @@ export class OpenAIRealtimeClient implements VoiceClient {
   private handledCallIds = new Set<string>();
   private pendingModelTranscript = '';
 
-  constructor(callbacks: VoiceClientCallbacks, provider: Provider, apiKey: string, role: CoachRole, voice: VoiceName) {
+  constructor(
+    callbacks: VoiceClientCallbacks,
+    provider: Provider,
+    apiKey: string,
+    role: CoachRole,
+    voice: VoiceName,
+    topicPrompt?: string,
+  ) {
     this.callbacks = callbacks;
     this.provider = provider;
     this.apiKey = apiKey;
     this.role = role;
     this.voice = voice;
+    this.topicPrompt = topicPrompt;
   }
 
   connect() {
-    const base = (this.provider.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const base = toWebSocketUrl((this.provider.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, ''));
     const url = `${base}/realtime?model=${encodeURIComponent(this.provider.model)}&api_key=${encodeURIComponent(this.apiKey)}`;
 
     try {
@@ -79,7 +95,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
       type: 'session.update',
       session: {
         modalities: ['audio', 'text'],
-        instructions: getRolePrompt(this.role),
+        instructions: getRolePrompt(this.role, this.topicPrompt),
         voice: this.voice || 'alloy',
         input_audio_format: 'pcm16',
         output_audio_format: 'pcm16',

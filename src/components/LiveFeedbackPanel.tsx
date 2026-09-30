@@ -1,7 +1,8 @@
 import React from 'react';
 import { FeedbackLog } from '../types';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Volume2 } from 'lucide-react';
 import { useT } from '../i18n/store';
+import { speakText } from '../utils/exporters';
 
 interface Props {
   logs: FeedbackLog[];
@@ -31,9 +32,18 @@ export const LiveFeedbackPanel: React.FC<Props> = ({ logs }) => {
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span className="line-through opacity-90">{item.userSpoke}</span>
               </div>
-              <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>{item.betterAlternative}</span>
+              <div className="flex items-center justify-between gap-2 text-emerald-400 font-medium">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{item.betterAlternative}</span>
+                </div>
+                <button
+                  onClick={() => speakText(item.betterAlternative)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition shrink-0"
+                  title={t('feedback.listen')}
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                </button>
               </div>
               <p className="text-slate-400 text-[11px] mt-0.5">{item.explanation}</p>
             </div>

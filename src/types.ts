@@ -70,3 +70,29 @@ export interface SessionStats {
   correctionsCount: number;
   estimatedBandScore: number;
 }
+
+export type TopicCategory = 'free' | 'ielts_part1' | 'ielts_part2' | 'ielts_part3' | 'interview' | 'debate' | 'custom';
+
+export interface PracticeTopic {
+  id: string;
+  category: TopicCategory;
+  title: string;
+  titleFa: string;
+  prompt: string;
+  cueBullets?: string[];
+  prepSeconds?: number;
+  speakSeconds?: number;
+}
+
+export interface SessionHistoryEntry {
+  id: string;
+  dateIso: string;
+  role: CoachRole;
+  topicTitle?: string;
+  durationSeconds: number;
+  wordsRecordedCount: number;
+  correctionsCount: number;
+  overallBand: number;
+  reportStatus: 'ready' | 'failed';
+  report: SessionReport;
+}

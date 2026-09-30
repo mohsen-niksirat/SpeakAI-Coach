@@ -36,10 +36,12 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private provider: Provider;
   private apiKey: string;
   private role: CoachRole;
+  private topicPrompt?: string;
 
   private messages: ChatMessage[] = [];
   private recognition: any = null;
   private wantRunning = false;
+  private muted = false;
   private stopped = false;
 
   private utterance = '';
@@ -51,11 +53,39 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private speakGen = 0;
   private cachedVoices: SpeechSynthesisVoice[] = [];
 
-  constructor(callbacks: VoiceClientCallbacks, provider: Provider, apiKey: string, role: CoachRole, _voice: VoiceName) {
+  constructor(
+    callbacks: VoiceClientCallbacks,
+    provider: Provider,
+    apiKey: string,
+    role: CoachRole,
+    _voice: VoiceName,
+    topicPrompt?: string,
+  ) {
     this.callbacks = callbacks;
     this.provider = provider;
     this.apiKey = apiKey;
     this.role = role;
+    this.topicPrompt = topicPrompt;
+  }
+
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    if (!this.recognition || this.stopped) return;
+    if (muted) {
+      this.wantRunning = false;
+      try {
+        this.recognition.stop();
+      } catch {
+        // ignore
+      }
+    } else {
+      this.wantRunning = true;
+      try {
+        this.recognition.start();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   connect() {
@@ -69,7 +99,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
       return;
     }
 
-    this.messages = [{ role: 'system', content: getRolePrompt(this.role) }];
+    this.messages = [{ role: 'system', content: getRolePrompt(this.role, this.topicPrompt) }];
 
     try {
       this.recognition = new SR();
@@ -82,7 +112,7 @@ export class BrowserChatVoiceClient implements VoiceClient {
     this.recognition.interimResults = true;
 
     this.recognition.onresult = (event: any) => {
-      if (this.stopped) return;
+      if (this.stopped || this.muted) return;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -103,9 +133,9 @@ export class BrowserChatVoiceClient implements VoiceClient {
     };
 
     this.recognition.onend = () => {
-      if (this.stopped || !this.wantRunning) return;
+      if (this.stopped || !this.wantRunning || this.muted) return;
       window.setTimeout(() => {
-        if (this.stopped || !this.wantRunning || !this.recognition) return;
+        if (this.stopped || !this.wantRunning || this.muted || !this.recognition) return;
         try {
           this.recognition.start();
         } catch {
