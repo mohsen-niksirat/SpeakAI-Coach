@@ -27,6 +27,7 @@ export class OpenAIRealtimeClient implements VoiceClient {
 
   private sessionReady = false;
   private updateSent = false;
+  private fallbackStage = 0;
   private disposed = false;
   private handledCallIds = new Set<string>();
   private pendingModelTranscript = '';
@@ -49,15 +50,17 @@ export class OpenAIRealtimeClient implements VoiceClient {
 
   connect() {
     const base = toWebSocketUrl((this.provider.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, ''));
-    const url = `${base}/realtime?model=${encodeURIComponent(this.provider.model)}&api_key=${encodeURIComponent(this.apiKey)}`;
+    const model = this.provider.model || 'gpt-realtime';
+    const url = `${base}/realtime?model=${encodeURIComponent(model)}`;
 
     try {
+      // OpenAI GA /v1/realtime WebSocket authentication uses 'realtime' + 'openai-insecure-api-key.<KEY>'
+      // Do NOT pass 'openai-beta.realtime-v1', as the Beta API is retired.
       this.ws = new WebSocket(url, [
         'realtime',
         `openai-insecure-api-key.${this.apiKey}`,
-        'openai-beta.realtime-v1',
       ]);
-    } catch (err) {
+    } catch {
       this.callbacks.onError(new ProviderError('network', t('err.realtimeOpen')));
       return;
     }
@@ -102,29 +105,62 @@ export class OpenAIRealtimeClient implements VoiceClient {
     }
   }
 
-  private sendSessionUpdate() {
-    if (this.updateSent) return;
+  private sendSessionUpdate(stage = 0) {
+    if (stage === 0 && this.updateSent) return;
     this.updateSent = true;
+    this.fallbackStage = stage;
 
+    const instructions = getRolePrompt(this.role, this.topicPrompt);
+    const voice = this.voice || 'marin';
+
+    if (stage === 0) {
+      // Official OpenAI GA /v1/realtime session.update schema
+      this.send({
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          output_modalities: ['audio'],
+          instructions,
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              transcription: { model: 'gpt-4o-mini-transcribe' },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 700,
+                create_response: true,
+                interrupt_response: true,
+              },
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice,
+            },
+          },
+          tools: TOOL_DECLARATIONS.map((tool) => ({ type: 'function', ...tool })),
+          tool_choice: 'auto',
+        },
+      });
+      return;
+    }
+
+    // Minimal GA fallback if a field (such as transcription model or tool schema) was rejected
     this.send({
       type: 'session.update',
       session: {
-        modalities: ['audio', 'text'],
-        instructions: getRolePrompt(this.role, this.topicPrompt),
-        voice: this.voice || 'alloy',
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: { model: 'whisper-1' },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 700,
-          create_response: true,
-          interrupt_response: true,
+        type: 'realtime',
+        instructions,
+        audio: {
+          input: {
+            format: { type: 'audio/pcm', rate: 24000 },
+          },
+          output: {
+            format: { type: 'audio/pcm', rate: 24000 },
+            voice,
+          },
         },
-        tools: TOOL_DECLARATIONS.map((t) => ({ type: 'function', ...t })),
-        tool_choice: 'auto',
       },
     });
   }
@@ -172,9 +208,23 @@ export class OpenAIRealtimeClient implements VoiceClient {
     });
   }
 
-  private handleServerError(payload: { code?: number | string; message?: string }) {
+  private handleServerError(payload: { code?: number | string; message?: string; type?: string }) {
     const message = payload?.message || 'Realtime API error';
     const rawCode = payload?.code;
+
+    // If setup failed due to an unsupported parameter in stage 0, retry with minimal GA schema
+    if (
+      !this.sessionReady &&
+      this.fallbackStage === 0 &&
+      (payload?.type === 'invalid_request_error' ||
+        String(rawCode || '').includes('invalid') ||
+        String(rawCode || '').includes('unknown'))
+    ) {
+      console.warn('OpenAI Realtime session.update rejected, retrying with minimal GA config:', message);
+      this.sendSessionUpdate(1);
+      return;
+    }
+
     const numericCode = typeof rawCode === 'number' ? rawCode : undefined;
     const kind: ProviderErrorKind = numericCode
       ? classifyHttpStatus(numericCode, message)
@@ -227,14 +277,16 @@ export class OpenAIRealtimeClient implements VoiceClient {
 
         case 'response.audio_transcript.delta':
         case 'response.output_audio_transcript.delta':
+        case 'response.output_text.delta':
           if (msg.delta) this.pendingModelTranscript += msg.delta;
           break;
 
         case 'response.audio_transcript.done':
         case 'response.output_audio_transcript.done':
-          if (msg.transcript) {
+        case 'response.output_text.done':
+          if (msg.transcript || msg.text) {
             this.pendingModelTranscript = '';
-            this.emitModelTranscript(msg.transcript, true);
+            this.emitModelTranscript(msg.transcript || msg.text, true);
           } else {
             this.flushModelTranscript();
           }

@@ -5,6 +5,7 @@ import { LiveFeedbackPanel } from './components/LiveFeedbackPanel';
 import { VocabCardList } from './components/VocabCardList';
 import { TranscriptPanel } from './components/TranscriptPanel';
 import { SettingsModal } from './components/SettingsModal';
+import { FreeKeyGuideModal } from './components/FreeKeyGuideModal';
 import { SessionSummaryModal } from './components/SessionSummaryModal';
 import { CueCardWidget } from './components/CueCardWidget';
 import { ShadowingStudio } from './components/ShadowingStudio';
@@ -29,6 +30,7 @@ import {
   Headphones,
   Lightbulb,
   GraduationCap,
+  KeyRound,
 } from 'lucide-react';
 
 const PREFS_STORAGE_KEY = 'speakai_prefs';
@@ -70,6 +72,8 @@ export default function App() {
   const [topicId, setTopicId] = useState<string>(initialPrefs.topicId);
   const [customTopicText, setCustomTopicText] = useState<string>(initialPrefs.customTopic);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isKeyGuideOpen, setIsKeyGuideOpen] = useState(false);
+  const [quickPresetId, setQuickPresetId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [showShadowStudio, setShowShadowStudio] = useState<boolean>(
     initialPrefs.role === 'shadowing_coach' || initialPrefs.role === 'pronunciation_drill',
@@ -96,7 +100,12 @@ export default function App() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.data && e.data.type === 'LEITNER_SYNC_PROVIDERS') {
-        setSettings(loadProviderSettings());
+        if (e.data.settings && Array.isArray(e.data.settings.providers)) {
+          saveProviderSettings(e.data.settings);
+          setSettings(loadProviderSettings());
+        } else {
+          setSettings(loadProviderSettings());
+        }
       }
     };
     window.addEventListener('message', onMessage);
@@ -132,6 +141,16 @@ export default function App() {
     startSession,
     endSession,
   } = useGeminiLive(settings, updateSettings);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'SPEAKAI_VOCAB_SYNC', cards: vocabCards }, '*');
+      }
+    } catch {
+      // ignore cross-frame errors
+    }
+  }, [vocabCards]);
 
   useEffect(() => {
     if (settings.providers.length === 0 && !localStorage.getItem('speakai_onboarded')) {
@@ -194,13 +213,23 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
           {isConnected && (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               {minutes}:{seconds}
             </div>
           )}
+          <button
+            onClick={() => setIsKeyGuideOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 transition text-xs font-semibold"
+            title={lang === 'fa' ? 'آموزش گام‌به‌گام دریافت کلید رایگان' : 'How to Get Free API Keys'}
+          >
+            <KeyRound className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">
+              {lang === 'fa' ? 'کلید رایگان' : 'Free Keys'}
+            </span>
+          </button>
           <button
             onClick={() => setShowShadowStudio((v) => !v)}
             className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border transition text-xs font-medium ${
@@ -439,6 +468,18 @@ export default function App() {
         onSelectRole={handleRoleChange}
         voice={voice}
         onSelectVoice={setVoice}
+        onOpenFreeKeyGuide={() => setIsKeyGuideOpen(true)}
+        initialPresetId={quickPresetId}
+        onConsumeInitialPreset={() => setQuickPresetId(null)}
+      />
+
+      <FreeKeyGuideModal
+        isOpen={isKeyGuideOpen}
+        onClose={() => setIsKeyGuideOpen(false)}
+        onQuickSelectPreset={(presetId) => {
+          setQuickPresetId(presetId);
+          setIsSettingsOpen(true);
+        }}
       />
 
       <HistoryModal

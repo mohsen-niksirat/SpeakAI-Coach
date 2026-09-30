@@ -4,7 +4,7 @@ const STORAGE_KEY = 'speakai_providers';
 const LEGACY_KEY = 'gemini_api_key';
 
 export const GEMINI_VOICES = ['Aoede', 'Kore', 'Puck', 'Charon', 'Fenrir'];
-export const OPENAI_VOICES = ['alloy', 'coral', 'shimmer', 'sage', 'verse', 'ash', 'ballad', 'echo'];
+export const OPENAI_VOICES = ['marin', 'cedar', 'alloy', 'coral', 'shimmer', 'sage', 'verse', 'ash', 'ballad', 'echo'];
 
 export const KIND_LABELS: Record<ProviderKind, string> = {
   'gemini-live': 'Gemini Live (realtime voice)',
@@ -20,7 +20,7 @@ export const KIND_DEFAULTS: Record<ProviderKind, { baseUrl: string; model: strin
   },
   'openai-realtime': {
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-realtime-preview',
+    model: 'gpt-realtime',
     reportModel: 'gpt-4.1-mini',
   },
   'openai-chat': {
@@ -50,8 +50,8 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'google-gemini',
-    labelEn: 'Google Gemini (AI Studio — Recommended)',
-    labelFa: 'گوگل جمینای (Google Gemini — پیشنهادی)',
+    labelEn: 'Google Gemini (AI Studio — Free Daily Quota ⭐)',
+    labelFa: 'گوگل جمینای (Google Gemini — دارای سهمیه رایگان روزانه ⭐)',
     defaultName: 'Google Gemini',
     kind: 'gemini-live',
     baseUrl: 'https://generativelanguage.googleapis.com',
@@ -71,55 +71,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     keyPlaceholder: 'AIzaSy...',
   },
   {
-    id: 'openai-realtime',
-    labelEn: 'OpenAI Realtime (Low-Latency Voice)',
-    labelFa: 'اوپن‌ای‌آی بلادرنگ (OpenAI Realtime)',
-    defaultName: 'OpenAI Realtime',
-    kind: 'openai-realtime',
-    baseUrl: 'https://api.openai.com/v1',
-    voiceModels: [
-      { value: 'gpt-4o-realtime-preview', label: 'gpt-4o-realtime-preview ⭐' },
-      { value: 'gpt-4o-mini-realtime-preview', label: 'gpt-4o-mini-realtime-preview (Fast)' },
-      { value: 'gpt-realtime', label: 'gpt-realtime' },
-    ],
-    reportModels: [
-      { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini ⭐' },
-      { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
-      { value: 'gpt-4o', label: 'gpt-4o' },
-    ],
-    keyPlaceholder: 'sk-proj-...',
-  },
-  {
-    id: 'openrouter',
-    labelEn: 'OpenRouter (Multi-Model Gateway)',
-    labelFa: 'اوپن‌روتر (OpenRouter)',
-    defaultName: 'OpenRouter',
-    kind: 'openai-chat',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    voiceModels: [
-      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash ⭐' },
-      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
-      { value: 'anthropic/claude-3.5-haiku', label: 'anthropic/claude-3.5-haiku' },
-      { value: 'deepseek/deepseek-chat', label: 'deepseek/deepseek-chat (DeepSeek V3)' },
-      { value: 'meta-llama/llama-3.3-70b-instruct', label: 'meta-llama/llama-3.3-70b-instruct' },
-    ],
-    reportModels: [
-      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash ⭐' },
-      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
-      { value: 'deepseek/deepseek-chat', label: 'deepseek/deepseek-chat' },
-    ],
-    keyPlaceholder: 'sk-or-v1-...',
-  },
-  {
     id: 'groq',
-    labelEn: 'Groq Cloud (Ultra-Fast Llama)',
-    labelFa: 'گروک (Groq — فوق سریع)',
+    labelEn: 'Groq Cloud (Free Daily Quota — Ultra-Fast ⭐)',
+    labelFa: 'گروک (Groq — سهمیه رایگان روزانه و فوق‌سریع ⭐)',
     defaultName: 'Groq',
     kind: 'openai-chat',
     baseUrl: 'https://api.groq.com/openai/v1',
     voiceModels: [
-      { value: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile ⭐' },
-      { value: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant (Fastest)' },
+      { value: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile ⭐ (Free Tier)' },
+      { value: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant (Fastest Free)' },
       { value: 'gemma2-9b-it', label: 'gemma2-9b-it' },
     ],
     reportModels: [
@@ -129,9 +89,86 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     keyPlaceholder: 'gsk_...',
   },
   {
+    id: 'openrouter',
+    labelEn: 'OpenRouter (Includes Free :free Models)',
+    labelFa: 'اوپن‌روتر (OpenRouter — دارای مدل‌های رایگان :free)',
+    defaultName: 'OpenRouter',
+    kind: 'openai-chat',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    voiceModels: [
+      { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'meta-llama/llama-3.3-70b-instruct:free 🆓' },
+      { value: 'deepseek/deepseek-chat-v3-0324:free', label: 'deepseek/deepseek-chat-v3-0324:free 🆓' },
+      { value: 'google/gemini-2.0-flash-exp:free', label: 'google/gemini-2.0-flash-exp:free 🆓' },
+      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash' },
+      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
+    ],
+    reportModels: [
+      { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'meta-llama/llama-3.3-70b-instruct:free 🆓' },
+      { value: 'deepseek/deepseek-chat-v3-0324:free', label: 'deepseek/deepseek-chat-v3-0324:free 🆓' },
+      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash' },
+      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
+    ],
+    keyPlaceholder: 'sk-or-v1-...',
+  },
+  {
+    id: 'cerebras',
+    labelEn: 'Cerebras Cloud (Free 1M Tokens/Day)',
+    labelFa: 'سربراس (Cerebras — روزانه ۱ میلیون توکن رایگان)',
+    defaultName: 'Cerebras',
+    kind: 'openai-chat',
+    baseUrl: 'https://api.cerebras.ai/v1',
+    voiceModels: [
+      { value: 'llama-3.3-70b', label: 'llama-3.3-70b ⭐ (Free Tier)' },
+      { value: 'llama3.1-8b', label: 'llama3.1-8b (Instant)' },
+    ],
+    reportModels: [
+      { value: 'llama-3.3-70b', label: 'llama-3.3-70b ⭐' },
+      { value: 'llama3.1-8b', label: 'llama3.1-8b' },
+    ],
+    keyPlaceholder: 'csk-...',
+  },
+  {
+    id: 'github-models',
+    labelEn: 'GitHub Models (Free with GitHub Account)',
+    labelFa: 'مدل‌های گیت‌هاب (GitHub Models — رایگان با اکانت گیت‌هاب)',
+    defaultName: 'GitHub Models',
+    kind: 'openai-chat',
+    baseUrl: 'https://models.inference.ai.azure.com',
+    voiceModels: [
+      { value: 'gpt-4o-mini', label: 'gpt-4o-mini ⭐ (Free Daily Quota)' },
+      { value: 'gpt-4o', label: 'gpt-4o (Free Rate-Limited)' },
+      { value: 'Llama-3.3-70B-Instruct', label: 'Llama-3.3-70B-Instruct' },
+    ],
+    reportModels: [
+      { value: 'gpt-4o-mini', label: 'gpt-4o-mini ⭐' },
+      { value: 'gpt-4o', label: 'gpt-4o' },
+    ],
+    keyPlaceholder: 'ghp_... or github_pat_...',
+  },
+  {
+    id: 'openai-realtime',
+    labelEn: 'OpenAI Realtime GA (/v1/realtime — Paid Credit Required)',
+    labelFa: 'اوپن‌ای‌آی بلادرنگ (OpenAI Realtime GA — نیازمند شارژ دلاری)',
+    defaultName: 'OpenAI Realtime',
+    kind: 'openai-realtime',
+    baseUrl: 'https://api.openai.com/v1',
+    voiceModels: [
+      { value: 'gpt-realtime', label: 'gpt-realtime ⭐ (GA Official)' },
+      { value: 'gpt-realtime-mini', label: 'gpt-realtime-mini (GA Fast & Economical)' },
+      { value: 'gpt-4o-realtime-preview', label: 'gpt-4o-realtime-preview' },
+      { value: 'gpt-4o-mini-realtime-preview', label: 'gpt-4o-mini-realtime-preview' },
+    ],
+    reportModels: [
+      { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini ⭐' },
+      { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+      { value: 'gpt-4o', label: 'gpt-4o' },
+    ],
+    keyPlaceholder: 'sk-proj-...',
+  },
+  {
     id: 'openai-chat',
-    labelEn: 'OpenAI Chat (Standard API + Browser Voice)',
-    labelFa: 'اوپن‌ای‌آی چت (OpenAI Chat)',
+    labelEn: 'OpenAI Chat (Standard API + Browser Voice — Paid)',
+    labelFa: 'اوپن‌ای‌آی چت (OpenAI Chat — نیازمند شارژ دلاری)',
     defaultName: 'OpenAI',
     kind: 'openai-chat',
     baseUrl: 'https://api.openai.com/v1',

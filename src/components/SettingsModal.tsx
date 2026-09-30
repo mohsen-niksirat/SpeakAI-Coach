@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CoachRole, Provider, ProviderKind, ProviderSettings } from '../types';
 import {
   X,
@@ -10,6 +10,7 @@ import {
   Trash2,
   Mic,
   FileText,
+  KeyRound,
 } from 'lucide-react';
 import {
   KIND_DEFAULTS,
@@ -31,6 +32,9 @@ interface Props {
   onSelectRole: (role: CoachRole) => void;
   voice: string;
   onSelectVoice: (voice: string) => void;
+  onOpenFreeKeyGuide?: () => void;
+  initialPresetId?: string | null;
+  onConsumeInitialPreset?: () => void;
 }
 
 interface ProviderDraft {
@@ -47,19 +51,19 @@ interface ProviderDraft {
   keysText: string;
 }
 
-function emptyDraft(): ProviderDraft {
-  const preset = PROVIDER_PRESETS[0]; // Google Gemini by default
+function emptyDraft(presetId = 'google-gemini'): ProviderDraft {
+  const preset = PROVIDER_PRESETS.find((p) => p.id === presetId) ?? PROVIDER_PRESETS[0];
   return {
     id: null,
     presetId: preset.id,
     name: preset.defaultName,
     kind: preset.kind,
     baseUrl: preset.baseUrl,
-    customBaseUrl: false,
+    customBaseUrl: preset.id === 'custom',
     model: preset.voiceModels[0]?.value ?? KIND_DEFAULTS[preset.kind].model,
-    customModel: false,
+    customModel: preset.id === 'custom',
     reportModel: preset.reportModels[0]?.value ?? KIND_DEFAULTS[preset.kind].reportModel,
-    customReportModel: false,
+    customReportModel: preset.id === 'custom',
     keysText: '',
   };
 }
@@ -102,10 +106,20 @@ export const SettingsModal: React.FC<Props> = ({
   onSelectRole,
   voice,
   onSelectVoice,
+  onOpenFreeKeyGuide,
+  initialPresetId,
+  onConsumeInitialPreset,
 }) => {
   const t = useT();
   const [lang] = useLang();
   const [draft, setDraft] = useState<ProviderDraft | null>(null);
+
+  useEffect(() => {
+    if (isOpen && initialPresetId) {
+      setDraft(emptyDraft(initialPresetId));
+      onConsumeInitialPreset?.();
+    }
+  }, [isOpen, initialPresetId, onConsumeInitialPreset]);
 
   if (!isOpen) return null;
 
@@ -301,6 +315,21 @@ export const SettingsModal: React.FC<Props> = ({
           </div>
 
           <div className="border-t border-slate-800 pt-4">
+            {onOpenFreeKeyGuide && (
+              <button
+                type="button"
+                onClick={onOpenFreeKeyGuide}
+                className="w-full mb-3 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 font-semibold text-xs transition"
+              >
+                <KeyRound className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  {lang === 'fa'
+                    ? '🔑 راهنمای گام‌به‌گام دریافت کلید رایگان (جمینای، گروک، اوپن‌روتر...)'
+                    : '🔑 Step-by-Step Guide: Get Free Daily API Keys (Gemini, Groq, OpenRouter...)'}
+                </span>
+              </button>
+            )}
+
             <div className="flex items-center justify-between mb-2">
               <label className="flex items-center gap-1.5 text-slate-300 font-medium">
                 <Server className="w-3.5 h-3.5 text-indigo-400" />
