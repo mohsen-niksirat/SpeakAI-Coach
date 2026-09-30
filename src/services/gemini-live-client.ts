@@ -92,7 +92,10 @@ export class GeminiLiveClient implements VoiceClient {
   ) {
     this.callbacks = callbacks;
     this.provider = provider;
-    this.apiKey = apiKey;
+    this.apiKey = String(apiKey || '')
+      .replace(/^Bearer\s+/i, '')
+      .replace(/["'\s\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+      .trim();
     this.role = role;
     this.voice = voice;
     this.topicPrompt = topicPrompt;
@@ -112,7 +115,10 @@ export class GeminiLiveClient implements VoiceClient {
   // One models.list call both validates network/key and builds the queue of
   // models we can fall back to when the configured one is rejected by WS.
   private async preflight(): Promise<void> {
-    const base = (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const rawBase = (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const base = /api\.openai\.com|groq\.com|openrouter\.ai/i.test(rawBase)
+      ? 'https://generativelanguage.googleapis.com'
+      : rawBase;
     const configured = stripModelsPrefix(this.provider.model);
     this.candidates = [configured];
     this.effectiveModel = configured;
@@ -121,7 +127,9 @@ export class GeminiLiveClient implements VoiceClient {
     const timer = setTimeout(() => ctrl.abort(), 8000);
     let res: Response;
     try {
-      res = await fetch(`${base}/v1beta/models?key=${this.apiKey}&pageSize=1000`, { signal: ctrl.signal });
+      res = await fetch(`${base}/v1beta/models?key=${encodeURIComponent(this.apiKey)}&pageSize=1000`, {
+        signal: ctrl.signal,
+      });
     } catch {
       throw new ProviderError('network', t('err.cannotReach', { base }));
     } finally {
@@ -135,6 +143,9 @@ export class GeminiLiveClient implements VoiceClient {
         message = body?.error?.message || message;
       } catch {
         // keep the status fallback
+      }
+      if (/Expected OAuth 2 access token/i.test(message) && !/^AIza/i.test(this.apiKey)) {
+        message = `${message} — کلید واردشده فرمت Google AI Studio (که با AIzaSy شروع می‌شود) را ندارد. لطفاً در تنظیمات کلید صحیح جمینای (AIzaSy...) را وارد کنید.`;
       }
       const kind = classifyHttpStatus(res.status, message);
       if (kind === 'invalid_key') {
@@ -207,10 +218,12 @@ export class GeminiLiveClient implements VoiceClient {
   }
 
   private openSocket() {
-    const base = toWebSocketUrl(
-      (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, ''),
-    );
-    const url = `${base}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
+    const rawBase = (this.provider.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const safeBase = /api\.openai\.com|groq\.com|openrouter\.ai/i.test(rawBase)
+      ? 'https://generativelanguage.googleapis.com'
+      : rawBase;
+    const base = toWebSocketUrl(safeBase);
+    const url = `${base}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(this.apiKey)}`;
 
     this.ws = new WebSocket(url);
     this.socketOpened = false;

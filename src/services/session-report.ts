@@ -1,5 +1,5 @@
 import { FeedbackLog, SessionReport, CriterionScore, Provider } from '../types';
-import { normalizeBaseUrl } from './providers';
+import { cleanApiKey, normalizeBaseUrl } from './providers';
 
 export function heuristicBand(corrections: number, vocab: number): number {
   return Math.max(5.5, Math.min(8.5, 7.5 - corrections * 0.2 + vocab * 0.1));
@@ -102,11 +102,13 @@ function isRetryable(err: unknown): boolean {
 
 async function callGemini(baseUrl: string, model: string, apiKey: string, prompt: string): Promise<string> {
   const base = normalizeBaseUrl(baseUrl) || 'https://generativelanguage.googleapis.com';
+  const cleanKey = cleanApiKey(apiKey);
+  const safeModel = model.includes('native-audio') ? 'gemini-2.5-flash' : model;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   let res: Response;
   try {
-    res = await fetch(`${base}/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    res = await fetch(`${base}/v1beta/models/${safeModel}:generateContent?key=${encodeURIComponent(cleanKey)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -134,6 +136,7 @@ async function callGemini(baseUrl: string, model: string, apiKey: string, prompt
 
 async function callOpenAIChat(baseUrl: string, model: string, apiKey: string, prompt: string): Promise<string> {
   const base = normalizeBaseUrl(baseUrl) || 'https://api.openai.com/v1';
+  const cleanKey = cleanApiKey(apiKey);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   let res: Response;
@@ -142,7 +145,7 @@ async function callOpenAIChat(baseUrl: string, model: string, apiKey: string, pr
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${cleanKey}`,
       },
       body: JSON.stringify({
         model,
@@ -185,11 +188,15 @@ export async function generateSessionReport(
 
   for (let i = 0; i < keys.length; i++) {
     const idx = (start + i) % keys.length;
+    const key = cleanApiKey(keys[idx]);
+    const useGeminiApi =
+      provider.kind === 'gemini-live' ||
+      normalizeBaseUrl(provider.baseUrl).includes('generativelanguage.googleapis.com') ||
+      key.startsWith('AIza');
     try {
-      const text =
-        provider.kind === 'gemini-live'
-          ? await callGemini(provider.baseUrl, model, keys[idx], prompt)
-          : await callOpenAIChat(provider.baseUrl, model, keys[idx], prompt);
+      const text = useGeminiApi
+        ? await callGemini(provider.baseUrl, model, key, prompt)
+        : await callOpenAIChat(provider.baseUrl, model, key, prompt);
 
       if (!text) throw new Error('Report response was empty');
       return { report: parseReport(text), usedKeyIndex: idx };

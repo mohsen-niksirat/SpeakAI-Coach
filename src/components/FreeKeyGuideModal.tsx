@@ -69,23 +69,23 @@ const FREE_PROVIDERS: GuideProvider[] = [
   },
   {
     presetId: 'openrouter',
-    badge: '🆓 20+ Free Models (:free)',
+    badge: '🆓 25+ Free Models (:free)',
     badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
     nameEn: '3. OpenRouter (Free Tier Models)',
     nameFa: '۳. اوپن‌روتر (OpenRouter) — دسترسی به مدل‌های رایگان :free',
-    quotaEn: 'Free Daily Quota on all models ending with :free (Llama 3.3, DeepSeek V3, Gemini Exp)',
-    quotaFa: 'سهمیه رایگان روزانه روی تمام مدل‌های دارای پسوند :free (بدون نیاز به شارژ دلاری)',
+    quotaEn: 'Free Daily Quota on all models ending with :free (Auto Free Router, Gemma 4 31B, Qwen 3.8 27B)',
+    quotaFa: 'سهمیه رایگان روزانه روی تمام مدل‌های دارای پسوند :free و مسیریاب خودکار openrouter/free (بدون نیاز به شارژ دلاری)',
     keyUrl: 'https://openrouter.ai/keys',
     keyPrefix: 'sk-or-v1-...',
     stepsEn: [
       'Go to openrouter.ai/keys and sign in with your Google or GitHub account.',
       'Click "Create Key", give it a name, and copy your sk-or-v1-... token.',
-      'In SpeakAI Settings, choose OpenRouter and pick any model marked with 🆓 (:free).',
+      'In SpeakAI Settings, choose OpenRouter and pick openrouter/free (Auto Router) or any model marked with 🆓 (:free).',
     ],
     stepsFa: [
       'وارد آدرس openrouter.ai/keys شوید و با حساب گوگل یا گیت‌هاب وارد شوید.',
       'روی «Create Key» کلیک کنید، یک نام وارد کرده و توکن (با پیشوند sk-or-v1-) را کپی کنید.',
-      'با زدن دکمه زیر، مدل‌های رایگان علامت‌گذاری‌شده با 🆓 (مثل Llama 3.3 70B Free یا DeepSeek V3 Free) به‌طور پیش‌فرض برایتان انتخاب می‌شوند.',
+      'با زدن دکمه زیر، مسیریاب هوشمند رایگان (openrouter/free) و مدل‌های رایگان 2026 (مثل Gemma 4 31B و Qwen 3.8 27B) به‌طور پیش‌فرض برایتان انتخاب می‌شوند.',
     ],
   },
   {

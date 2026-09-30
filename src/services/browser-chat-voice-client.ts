@@ -6,7 +6,7 @@ import {
   TOOL_DECLARATIONS,
   handleToolCall,
 } from './voice-client';
-import { normalizeBaseUrl } from './providers';
+import { normalizeBaseUrl, cleanApiKey } from './providers';
 import { t } from '../i18n/store';
 import { ProviderError, asProviderError, classifyHttpStatus } from './errors';
 
@@ -28,9 +28,38 @@ const MAX_TOOL_HOPS = 4;
 const GREETING_PROMPT =
   '(The speaking session has just begun. Greet the student warmly in English with one short sentence and one simple question.)';
 
-// Voice for chat-only providers: browser SpeechRecognition (STT) → provider
-// chat/completions → browser speechSynthesis (TTS). Works with any
-// OpenAI-compatible text provider; no audio endpoints required.
+const OPENROUTER_FALLBACK_MODELS = [
+  'openrouter/free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'qwen/qwen3.8-27b:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'inclusionai/ling-3.0-flash-sante:free',
+];
+
+const GROQ_FALLBACK_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+];
+
+const CEREBRAS_FALLBACK_MODELS = [
+  'llama-3.3-70b',
+  'llama3.1-8b',
+];
+
+const GEMINI_REST_FALLBACK_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+];
+
+// Voice for chat-only providers (and Gemini REST fallback): browser SpeechRecognition (STT) →
+// provider chat/completions or Gemini generateContent → browser speechSynthesis (TTS).
 export class BrowserChatVoiceClient implements VoiceClient {
   private callbacks: VoiceClientCallbacks;
   private provider: Provider;
@@ -43,6 +72,9 @@ export class BrowserChatVoiceClient implements VoiceClient {
   private wantRunning = false;
   private muted = false;
   private stopped = false;
+  private setupCompleted = false;
+  private effectiveModel: string;
+  private toolsDisabled = false;
 
   private utterance = '';
   private silenceTimer: number | null = null;
@@ -63,9 +95,10 @@ export class BrowserChatVoiceClient implements VoiceClient {
   ) {
     this.callbacks = callbacks;
     this.provider = provider;
-    this.apiKey = apiKey;
+    this.apiKey = cleanApiKey(apiKey);
     this.role = role;
     this.topicPrompt = topicPrompt;
+    this.effectiveModel = (provider.model || '').trim();
   }
 
   setMuted(muted: boolean) {
@@ -152,19 +185,22 @@ export class BrowserChatVoiceClient implements VoiceClient {
       window.speechSynthesis.onvoiceschanged = load;
     }
 
-    this.wantRunning = true;
-    try {
-      this.recognition.start();
-    } catch {
-      // ignore double-start
-    }
-
-    this.callbacks.onSetupComplete();
-
     this.enqueue(async () => {
       this.messages.push({ role: 'user', content: GREETING_PROMPT });
       await this.runAssistantTurn();
     });
+  }
+
+  private markReadyAndStartRecognition() {
+    if (this.setupCompleted || this.stopped) return;
+    this.setupCompleted = true;
+    this.wantRunning = true;
+    try {
+      this.recognition?.start();
+    } catch {
+      // ignore double-start
+    }
+    this.callbacks.onSetupComplete();
   }
 
   // Mic audio goes through SpeechRecognition instead of raw PCM chunks.
@@ -203,44 +239,221 @@ export class BrowserChatVoiceClient implements VoiceClient {
     });
   }
 
+  private isGeminiRest(): boolean {
+    const base = normalizeBaseUrl(this.provider.baseUrl);
+    return (
+      /generativelanguage\.googleapis\.com/i.test(base) ||
+      /^AIza[0-9A-Za-z_-]{15,}/.test(this.apiKey)
+    );
+  }
+
+  private async chatGeminiRest(): Promise<any> {
+    const rawBase = normalizeBaseUrl(this.provider.baseUrl);
+    const base =
+      /generativelanguage\.googleapis\.com/i.test(rawBase)
+        ? rawBase
+        : 'https://generativelanguage.googleapis.com';
+
+    const initialModel =
+      !this.effectiveModel || /native-audio|live/i.test(this.effectiveModel)
+        ? 'gemini-2.5-flash'
+        : this.effectiveModel.replace(/^models\//, '');
+
+    const candidates = Array.from(new Set([initialModel, ...GEMINI_REST_FALLBACK_MODELS]));
+    const systemMsg = this.messages.find((m) => m.role === 'system')?.content || '';
+    const contents = this.messages
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+      .map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: String(m.content) }],
+      }));
+
+    let lastStatus = 500;
+    let lastErrMsg = '';
+
+    for (const model of candidates) {
+      if (this.stopped) return null;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const res = await fetch(
+          `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg }] } } : {}),
+              contents,
+              generationConfig: { temperature: 0.6, maxOutputTokens: 512 },
+            }),
+            signal: ctrl.signal,
+          },
+        );
+        clearTimeout(timer);
+
+        if (res.ok) {
+          const data = await res.json();
+          const replyText =
+            data?.candidates?.[0]?.content?.parts
+              ?.map((p: { text?: string }) => p.text || '')
+              .join('') || '';
+          if (replyText) {
+            this.effectiveModel = model;
+            return { choices: [{ message: { role: 'assistant', content: replyText } }] };
+          }
+        } else {
+          lastStatus = res.status;
+          const body = await res.json().catch(() => null);
+          lastErrMsg = body?.error?.message || `HTTP ${res.status}`;
+          if (res.status === 401 || res.status === 403 || /api_key_invalid|api key not valid|invalid authentication/i.test(lastErrMsg)) {
+            throw new ProviderError('invalid_key', t('err.keyRejected', { msg: lastErrMsg }));
+          }
+        }
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof ProviderError) throw err;
+        lastErrMsg = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    throw new ProviderError(
+      classifyHttpStatus(lastStatus, lastErrMsg),
+      lastErrMsg || t('err.providerError', { status: lastStatus }),
+    );
+  }
+
+  private buildCandidateModels(base: string): string[] {
+    const primary = this.effectiveModel || this.provider.model || 'gpt-4o-mini';
+    if (/openrouter\.ai/i.test(base)) {
+      return Array.from(new Set([primary, ...OPENROUTER_FALLBACK_MODELS]));
+    }
+    if (/groq\.com/i.test(base)) {
+      return Array.from(new Set([primary, ...GROQ_FALLBACK_MODELS]));
+    }
+    if (/cerebras\.ai/i.test(base)) {
+      return Array.from(new Set([primary, ...CEREBRAS_FALLBACK_MODELS]));
+    }
+    return [primary];
+  }
+
   private async chat(): Promise<any> {
+    if (this.isGeminiRest()) {
+      return this.chatGeminiRest();
+    }
+
     const base = normalizeBaseUrl(this.provider.baseUrl) || 'https://api.openai.com/v1';
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30000);
-    let res: Response;
-    try {
-      res = await fetch(`${base}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.provider.model,
-          temperature: 0.6,
-          messages: this.messages,
-          tools: TOOL_DECLARATIONS.map((t) => ({ type: 'function', function: t })),
-          tool_choice: 'auto',
-        }),
-        signal: ctrl.signal,
-      });
-    } catch {
-      throw new ProviderError('network', t('err.chatTimeout'));
-    } finally {
-      clearTimeout(timer);
+    const isOpenRouter = /openrouter\.ai/i.test(base);
+    const candidates = this.buildCandidateModels(base);
+
+    let lastStatus = 500;
+    let lastMessage = '';
+
+    for (let i = 0; i < candidates.length; i++) {
+      const candidateModel = candidates[i];
+      // OpenRouter :free and router models often return 404 when 'tools' is requested
+      const isFreeRouterModel = isOpenRouter && (/:free$/i.test(candidateModel) || candidateModel === 'openrouter/free');
+      const tryToolsFirst = !this.toolsDisabled && !isFreeRouterModel && i === 0;
+
+      const modes = tryToolsFirst ? [true, false] : [false];
+
+      for (const useTools of modes) {
+        if (this.stopped) return null;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 30000);
+        let res: Response;
+        try {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          };
+          if (isOpenRouter && typeof window !== 'undefined') {
+            headers['HTTP-Referer'] = window.location.origin || 'https://mohsen-niksirat.github.io';
+            headers['X-Title'] = 'SpeakAI Coach';
+          }
+
+          const cleanMessages = useTools
+            ? this.messages
+            : this.messages
+                .filter((m) => m.role !== 'tool' && !m.tool_calls)
+                .map((m) => ({ role: m.role, content: m.content || '' }));
+
+          res = await fetch(`${base}/chat/completions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: candidateModel,
+              temperature: 0.6,
+              messages: cleanMessages,
+              ...(useTools
+                ? {
+                    tools: TOOL_DECLARATIONS.map((td) => ({ type: 'function', function: td })),
+                    tool_choice: 'auto',
+                  }
+                : {}),
+            }),
+            signal: ctrl.signal,
+          });
+        } catch {
+          clearTimeout(timer);
+          throw new ProviderError('network', t('err.chatTimeout'));
+        } finally {
+          clearTimeout(timer);
+        }
+
+        if (res.ok) {
+          const json = await res.json();
+          if (candidateModel !== this.effectiveModel) {
+            this.effectiveModel = candidateModel;
+            this.callbacks.onNotice?.(
+              t('notice.modelFallback', { old: this.provider.model, new: candidateModel }),
+            );
+          }
+          if (!useTools && tryToolsFirst) {
+            this.toolsDisabled = true;
+          }
+          return json;
+        }
+
+        lastStatus = res.status;
+        try {
+          const errBody = await res.json();
+          lastMessage =
+            errBody?.error?.message ||
+            errBody?.message ||
+            (typeof errBody?.error === 'string' ? errBody.error : '');
+        } catch {
+          lastMessage = '';
+        }
+
+        // If the API key itself is rejected (401/403), stop trying other models immediately
+        if (res.status === 401 || res.status === 403) {
+          throw new ProviderError(
+            'invalid_key',
+            t('err.keyRejected', { msg: lastMessage || `HTTP ${res.status}` }),
+          );
+        }
+
+        // If tools caused a 400/404/422 error, disable tools and retry same model without tools
+        if (useTools) {
+          this.toolsDisabled = true;
+          continue;
+        }
+      }
     }
-    if (!res.ok) {
-      throw new ProviderError(classifyHttpStatus(res.status), t('err.providerError', { status: res.status }));
-    }
-    return res.json();
+
+    const detail = lastMessage ? `${t('err.providerError', { status: lastStatus })} (${lastMessage})` : t('err.providerError', { status: lastStatus });
+    throw new ProviderError(classifyHttpStatus(lastStatus, lastMessage), detail);
   }
 
   private async runAssistantTurn(): Promise<void> {
     for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
       if (this.stopped) return;
       const data = await this.chat();
+      if (!data || this.stopped) return;
       const message = data?.choices?.[0]?.message;
       if (!message) throw new Error(t('err.emptyResponse'));
+
+      this.markReadyAndStartRecognition();
 
       if (message.tool_calls?.length) {
         this.messages.push(message);

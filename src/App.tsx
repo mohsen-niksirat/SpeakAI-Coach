@@ -12,7 +12,7 @@ import { ShadowingStudio } from './components/ShadowingStudio';
 import { PhraseBooster } from './components/PhraseBooster';
 import { HistoryModal } from './components/HistoryModal';
 import { CoachRole, ProviderSettings } from './types';
-import { loadProviderSettings, saveProviderSettings } from './services/providers';
+import { loadProviderSettings, saveProviderSettings, sanitizeProvider, isVoiceCapable } from './services/providers';
 import { PRACTICE_TOPICS, buildCustomTopic, getSuggestedCategoriesForRole } from './services/topics';
 import { useT, useLang } from './i18n/store';
 import {
@@ -31,6 +31,7 @@ import {
   Lightbulb,
   GraduationCap,
   KeyRound,
+  Server,
 } from 'lucide-react';
 
 const PREFS_STORAGE_KEY = 'speakai_prefs';
@@ -100,11 +101,38 @@ export default function App() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.data && e.data.type === 'LEITNER_SYNC_PROVIDERS') {
+        const current = loadProviderSettings();
         if (e.data.settings && Array.isArray(e.data.settings.providers)) {
-          saveProviderSettings(e.data.settings);
+          const mergedProviders = [...current.providers];
+          for (const rawIncoming of e.data.settings.providers) {
+            const incoming = sanitizeProvider(rawIncoming);
+            if (!incoming.keys || incoming.keys.length === 0) continue;
+            const existingIdx = mergedProviders.findIndex(
+              (p) => p.id === incoming.id || (p.kind === incoming.kind && p.baseUrl === incoming.baseUrl),
+            );
+            if (existingIdx >= 0) {
+              const existing = mergedProviders[existingIdx];
+              const mergedKeys = Array.from(new Set([...existing.keys, ...incoming.keys]));
+              mergedProviders[existingIdx] = sanitizeProvider({ ...existing, keys: mergedKeys });
+            } else {
+              mergedProviders.push(incoming);
+            }
+          }
+          const nextSettings: ProviderSettings = {
+            providers: mergedProviders,
+            voiceProviderId:
+              current.voiceProviderId && mergedProviders.some((p) => p.id === current.voiceProviderId)
+                ? current.voiceProviderId
+                : mergedProviders.find((p) => isVoiceCapable(p.kind))?.id ?? null,
+            reportProviderId:
+              current.reportProviderId && mergedProviders.some((p) => p.id === current.reportProviderId)
+                ? current.reportProviderId
+                : mergedProviders[0]?.id ?? null,
+          };
+          saveProviderSettings(nextSettings);
           setSettings(loadProviderSettings());
         } else {
-          setSettings(loadProviderSettings());
+          setSettings(current);
         }
       }
     };
@@ -197,6 +225,7 @@ export default function App() {
   const minutes = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
   const seconds = String(sessionSeconds % 60).padStart(2, '0');
   const showTranscript = isConnected || transcript.length > 0;
+  const voiceCapableProviders = settings.providers.filter((p) => isVoiceCapable(p.kind));
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-between p-4 md:p-8 max-w-6xl mx-auto">
@@ -214,6 +243,27 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          {voiceCapableProviders.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-surface border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
+              <Server className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <select
+                value={settings.voiceProviderId ?? ''}
+                disabled={isConnected || phase === 'connecting'}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  updateSettings({ ...settings, voiceProviderId: id, reportProviderId: id ?? settings.reportProviderId });
+                }}
+                aria-label="Active Voice Provider"
+                className="bg-transparent text-slate-200 font-medium outline-none text-xs max-w-[150px] truncate cursor-pointer disabled:opacity-60"
+              >
+                {voiceCapableProviders.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-slate-900 text-slate-200">
+                    {p.name} ({p.model.split('/').pop()?.replace(':free', '')})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {isConnected && (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />

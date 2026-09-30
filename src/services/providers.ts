@@ -50,8 +50,8 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'google-gemini',
-    labelEn: 'Google Gemini (AI Studio — Free Daily Quota ⭐)',
-    labelFa: 'گوگل جمینای (Google Gemini — دارای سهمیه رایگان روزانه ⭐)',
+    labelEn: 'Google Gemini Live (AI Studio — Free Daily Quota ⭐)',
+    labelFa: 'گوگل جمینای زنده (Google Gemini Live — سهمیه رایگان روزانه ⭐)',
     defaultName: 'Google Gemini',
     kind: 'gemini-live',
     baseUrl: 'https://generativelanguage.googleapis.com',
@@ -64,9 +64,31 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     ],
     reportModels: [
       { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash ⭐' },
-      { value: 'gemini-flash-latest', label: 'gemini-flash-latest' },
+      { value: 'gemini-3.8-flash', label: 'gemini-3.8-flash (Newest)' },
+      { value: 'gemini-3.6-flash', label: 'gemini-3.6-flash' },
       { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Analytical)' },
       { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+    ],
+    keyPlaceholder: 'AIzaSy...',
+  },
+  {
+    id: 'google-gemini-hybrid',
+    labelEn: 'Google Gemini Hybrid Voice (REST + Browser Voice — Works on All VPNs 🛡️)',
+    labelFa: 'گوگل جمینای ضدتحریم (مکالمه صوتی با API معمولی — بدون نیاز به WebSocket 🛡️)',
+    defaultName: 'Google Gemini (Hybrid)',
+    kind: 'openai-chat',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    voiceModels: [
+      { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash ⭐ (Fast & Reliable)' },
+      { value: 'gemini-2.5-flash-lite', label: 'gemini-2.5-flash-lite (High Free Quota)' },
+      { value: 'gemini-3.8-flash', label: 'gemini-3.8-flash (Newest 3.8)' },
+      { value: 'gemini-3.6-flash', label: 'gemini-3.6-flash' },
+      { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+    ],
+    reportModels: [
+      { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash ⭐' },
+      { value: 'gemini-3.8-flash', label: 'gemini-3.8-flash' },
+      { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
     ],
     keyPlaceholder: 'AIzaSy...',
   },
@@ -78,13 +100,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: 'openai-chat',
     baseUrl: 'https://api.groq.com/openai/v1',
     voiceModels: [
-      { value: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile ⭐ (Free Tier)' },
-      { value: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant (Fastest Free)' },
-      { value: 'gemma2-9b-it', label: 'gemma2-9b-it' },
+      { value: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile ⭐ (1K req/day Free)' },
+      { value: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant ⚡ (14.4K req/day Free)' },
+      { value: 'openai/gpt-oss-120b', label: 'openai/gpt-oss-120b (Smart)' },
+      { value: 'openai/gpt-oss-20b', label: 'openai/gpt-oss-20b (Fast)' },
+      { value: 'qwen/qwen3.6-27b', label: 'qwen/qwen3.6-27b' },
+      { value: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'meta-llama/llama-4-scout-17b-16e-instruct' },
     ],
     reportModels: [
       { value: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile ⭐' },
       { value: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant' },
+      { value: 'openai/gpt-oss-120b', label: 'openai/gpt-oss-120b' },
     ],
     keyPlaceholder: 'gsk_...',
   },
@@ -96,17 +122,22 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: 'openai-chat',
     baseUrl: 'https://openrouter.ai/api/v1',
     voiceModels: [
-      { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'meta-llama/llama-3.3-70b-instruct:free 🆓' },
-      { value: 'deepseek/deepseek-chat-v3-0324:free', label: 'deepseek/deepseek-chat-v3-0324:free 🆓' },
-      { value: 'google/gemini-2.0-flash-exp:free', label: 'google/gemini-2.0-flash-exp:free 🆓' },
-      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash' },
-      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
+      { value: 'openrouter/free', label: '🔄 openrouter/free ⭐ (Auto-Select Best Working Free Model)' },
+      { value: 'google/gemma-4-31b-it:free', label: 'google/gemma-4-31b-it:free 🆓' },
+      { value: 'google/gemma-4-26b-a4b-it:free', label: 'google/gemma-4-26b-a4b-it:free 🆓' },
+      { value: 'qwen/qwen3.8-27b:free', label: 'qwen/qwen3.8-27b:free 🆓' },
+      { value: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'nvidia/nemotron-3-super-120b-a12b:free 🆓' },
+      { value: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'nvidia/nemotron-3-ultra-550b-a55b:free 🆓' },
+      { value: 'inclusionai/ling-3.0-flash-sante:free', label: 'inclusionai/ling-3.0-flash-sante:free 🆓' },
+      { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash (Paid)' },
+      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini (Paid)' },
     ],
     reportModels: [
-      { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'meta-llama/llama-3.3-70b-instruct:free 🆓' },
-      { value: 'deepseek/deepseek-chat-v3-0324:free', label: 'deepseek/deepseek-chat-v3-0324:free 🆓' },
+      { value: 'openrouter/free', label: '🔄 openrouter/free ⭐ (Auto-Select Free Model)' },
+      { value: 'google/gemma-4-31b-it:free', label: 'google/gemma-4-31b-it:free 🆓' },
+      { value: 'qwen/qwen3.8-27b:free', label: 'qwen/qwen3.8-27b:free 🆓' },
+      { value: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'nvidia/nemotron-3-super-120b-a12b:free 🆓' },
       { value: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash' },
-      { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
     ],
     keyPlaceholder: 'sk-or-v1-...',
   },
@@ -120,10 +151,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     voiceModels: [
       { value: 'llama-3.3-70b', label: 'llama-3.3-70b ⭐ (Free Tier)' },
       { value: 'llama3.1-8b', label: 'llama3.1-8b (Instant)' },
+      { value: 'gpt-oss-120b', label: 'gpt-oss-120b' },
+      { value: 'gemma-4-31b', label: 'gemma-4-31b' },
     ],
     reportModels: [
       { value: 'llama-3.3-70b', label: 'llama-3.3-70b ⭐' },
       { value: 'llama3.1-8b', label: 'llama3.1-8b' },
+      { value: 'gpt-oss-120b', label: 'gpt-oss-120b' },
     ],
     keyPlaceholder: 'csk-...',
   },
@@ -212,6 +246,135 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
 ];
 
+const RETIRED_OPENROUTER_MODELS = new Set([
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'deepseek/deepseek-chat-v3-0324:free',
+  'deepseek/deepseek-r1:free',
+  'google/gemini-2.0-flash-exp:free',
+  'qwen/qwen-2.5-72b-instruct:free',
+  'openai/gpt-oss-20b:free',
+]);
+
+export function cleanApiKey(raw: string): string {
+  return String(raw || '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim()
+    .replace(/^Bearer\s+/i, '')
+    .replace(/["'`\s]/g, '')
+    .trim();
+}
+
+export function detectPresetFromKey(rawKey: string): string | null {
+  const key = cleanApiKey(rawKey);
+  if (!key) return null;
+  if (/^AIza[0-9A-Za-z_-]{4,}/.test(key)) return 'google-gemini';
+  if (/^gsk_[0-9A-Za-z_-]{4,}/i.test(key)) return 'groq';
+  if (/^sk-or-/i.test(key)) return 'openrouter';
+  if (/^csk-/i.test(key)) return 'cerebras';
+  if (/^(ghp_|github_pat_)/i.test(key)) return 'github-models';
+  if (/^sk-(proj-|svcacct-)/i.test(key)) return 'openai-realtime';
+  return null;
+}
+
+export function sanitizeProvider(provider: Provider): Provider {
+  const cleanedKeys = (provider.keys || []).map(cleanApiKey).filter(Boolean);
+  const firstKey = cleanedKeys[0] || '';
+  const detectedFromKey = detectPresetFromKey(firstKey);
+  const cleanUrl = normalizeBaseUrl(provider.baseUrl || '');
+
+  let kind = provider.kind;
+  let baseUrl = cleanUrl || KIND_DEFAULTS[kind].baseUrl;
+  let model = (provider.model || '').trim() || KIND_DEFAULTS[kind].model;
+  let reportModel = (provider.reportModel || '').trim();
+  let keys = cleanedKeys;
+
+  // Auto-fix Groq providers (where user pasted a gsk_ key or named it Groq without changing preset/baseUrl)
+  if (detectedFromKey === 'groq' || /groq\.com/i.test(baseUrl) || /^groq$/i.test(provider.name.trim())) {
+    kind = 'openai-chat';
+    baseUrl = 'https://api.groq.com/openai/v1';
+    if (
+      !model ||
+      /^gemini/i.test(model) ||
+      /^gpt-4/i.test(model) ||
+      /^gpt-realtime/i.test(model) ||
+      /:free$/i.test(model) ||
+      model === 'openrouter/free' ||
+      /mixtral/i.test(model)
+    ) {
+      model = 'llama-3.3-70b-versatile';
+    }
+    if (!reportModel || /^gemini/i.test(reportModel) || /^gpt-4/i.test(reportModel) || /:free$/i.test(reportModel)) {
+      reportModel = 'llama-3.3-70b-versatile';
+    }
+    const groqOnly = keys.filter((k) => /^gsk_/i.test(k));
+    if (groqOnly.length > 0) keys = groqOnly;
+  }
+  // Auto-fix OpenRouter providers (and migrate retired :free models that return 404)
+  else if (detectedFromKey === 'openrouter' || /openrouter\.ai/i.test(baseUrl) || /^openrouter$/i.test(provider.name.trim())) {
+    kind = 'openai-chat';
+    baseUrl = 'https://openrouter.ai/api/v1';
+    if (
+      !model ||
+      RETIRED_OPENROUTER_MODELS.has(model) ||
+      /^gemini-2\.5-flash-native/i.test(model) ||
+      /^gpt-realtime/i.test(model) ||
+      model === 'gpt-4.1-mini' ||
+      model === 'llama-3.3-70b-versatile'
+    ) {
+      model = 'openrouter/free';
+    }
+    if (!reportModel || RETIRED_OPENROUTER_MODELS.has(reportModel) || reportModel === 'gpt-4.1-mini') {
+      reportModel = 'openrouter/free';
+    }
+    const orOnly = keys.filter((k) => /^sk-or-/i.test(k));
+    if (orOnly.length > 0) keys = orOnly;
+  }
+  // Auto-fix Cerebras providers
+  else if (detectedFromKey === 'cerebras' || /cerebras\.ai/i.test(baseUrl)) {
+    kind = 'openai-chat';
+    baseUrl = 'https://api.cerebras.ai/v1';
+    if (!model || /^gemini/i.test(model) || /^gpt-4/i.test(model) || /:free$/i.test(model)) {
+      model = 'llama-3.3-70b';
+    }
+  }
+  // Auto-fix GitHub Models providers
+  else if (detectedFromKey === 'github-models' || /inference\.ai\.azure\.com/i.test(baseUrl)) {
+    kind = 'openai-chat';
+    baseUrl = 'https://models.inference.ai.azure.com';
+    if (!model || /^gemini/i.test(model) || /:free$/i.test(model)) {
+      model = 'gpt-4o-mini';
+    }
+  }
+  // Auto-fix Google Gemini providers (both Live and Hybrid)
+  else if (kind === 'gemini-live' || detectedFromKey === 'google-gemini' || /generativelanguage\.googleapis\.com/i.test(baseUrl)) {
+    if (/api\.openai\.com|groq\.com|openrouter\.ai/i.test(baseUrl)) {
+      baseUrl = 'https://generativelanguage.googleapis.com';
+    }
+    // If multiple keys exist and some are real AIza Google keys while others are foreign/corrupted, keep AIza keys first
+    const aizaKeys = keys.filter((k) => /^AIza[0-9A-Za-z_-]{15,}/.test(k));
+    if (aizaKeys.length > 0) {
+      keys = aizaKeys;
+    }
+    if (kind === 'openai-chat' && /native-audio|live/i.test(model)) {
+      model = 'gemini-2.5-flash';
+    }
+  }
+
+  const clampedIndex = keys.length > 0 ? Math.min(Math.max(provider.keyIndex || 0, 0), keys.length - 1) : 0;
+
+  return {
+    ...provider,
+    kind,
+    baseUrl,
+    model,
+    reportModel: reportModel || undefined,
+    keys,
+    keyIndex: clampedIndex,
+  };
+}
+
 export function detectPresetId(provider: Pick<Provider, 'kind' | 'baseUrl'>): string {
   const cleanUrl = normalizeBaseUrl(provider.baseUrl).toLowerCase();
   const match = PROVIDER_PRESETS.find(
@@ -247,7 +410,7 @@ function migrateLegacyKey(settings: ProviderSettings): ProviderSettings {
   if (!legacy) return settings;
 
   const defaults = KIND_DEFAULTS['gemini-live'];
-  const provider: Provider = {
+  const provider: Provider = sanitizeProvider({
     id: newProviderId(),
     name: 'Google AI Studio',
     kind: 'gemini-live',
@@ -256,7 +419,7 @@ function migrateLegacyKey(settings: ProviderSettings): ProviderSettings {
     reportModel: defaults.reportModel,
     keys: [legacy],
     keyIndex: 0,
-  };
+  });
   localStorage.removeItem(LEGACY_KEY);
   return {
     providers: [provider],
@@ -272,10 +435,11 @@ export function loadProviderSettings(): ProviderSettings {
     if (!raw) return migrateLegacyKey(empty);
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed?.providers)) return migrateLegacyKey(empty);
+    const sanitizedProviders = parsed.providers.map(sanitizeProvider);
     return migrateLegacyKey({
-      providers: parsed.providers,
-      voiceProviderId: parsed.voiceProviderId ?? null,
-      reportProviderId: parsed.reportProviderId ?? null,
+      providers: sanitizedProviders,
+      voiceProviderId: parsed.voiceProviderId ?? sanitizedProviders[0]?.id ?? null,
+      reportProviderId: parsed.reportProviderId ?? sanitizedProviders[0]?.id ?? null,
     });
   } catch {
     return empty;
@@ -284,7 +448,11 @@ export function loadProviderSettings(): ProviderSettings {
 
 export function saveProviderSettings(settings: ProviderSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    const sanitized: ProviderSettings = {
+      ...settings,
+      providers: (settings.providers || []).map(sanitizeProvider),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch {
     // storage unavailable; settings will not persist
   }
@@ -293,7 +461,7 @@ export function saveProviderSettings(settings: ProviderSettings): void {
 export function activeKey(provider: Provider): string {
   if (provider.keys.length === 0) return '';
   const idx = Math.min(provider.keyIndex, provider.keys.length - 1);
-  return provider.keys[idx];
+  return cleanApiKey(provider.keys[idx]);
 }
 
 // Advance to the next key after a failure; returns the updated provider.
@@ -304,5 +472,6 @@ export function rotateKey(provider: Provider): Provider {
 
 export function findProvider(settings: ProviderSettings, id: string | null): Provider | null {
   if (!id) return null;
-  return settings.providers.find((p) => p.id === id) ?? null;
+  const found = settings.providers.find((p) => p.id === id) ?? null;
+  return found ? sanitizeProvider(found) : null;
 }

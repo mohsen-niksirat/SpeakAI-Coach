@@ -302,6 +302,22 @@ export function useGeminiLive(settings: ProviderSettings, onSettingsChange: (nex
             const next = rotateKey(provider);
             persistProviderKey(next);
             attemptTimerRef.current = window.setTimeout(() => startAttempt(next, attemptsSoFar + 1), 250);
+          } else if (
+            provider.kind === 'gemini-live' &&
+            kind !== 'invalid_key' &&
+            typeof window !== 'undefined' &&
+            ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+          ) {
+            const hybridFallback: Provider = {
+              ...provider,
+              kind: 'openai-chat',
+              baseUrl: 'https://generativelanguage.googleapis.com',
+              model: provider.reportModel || 'gemini-2.5-flash',
+            };
+            setNotice(
+              'WebSocket جمینای توسط اینترنت/VPN محدود شد — سوییچ خودکار به حالت مکالمه صوتی هیبرید جمینای انجام شد.',
+            );
+            attemptTimerRef.current = window.setTimeout(() => startAttempt(hybridFallback, 0), 200);
           } else {
             const suffix =
               isRotatable(kind) && provider.keys.length > 1 && attemptsSoFar + 1 >= provider.keys.length

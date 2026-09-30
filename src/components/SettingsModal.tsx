@@ -15,11 +15,14 @@ import {
 import {
   KIND_DEFAULTS,
   PROVIDER_PRESETS,
+  cleanApiKey,
+  detectPresetFromKey,
   detectPresetId,
   isVoiceCapable,
   voicesForKind,
   newProviderId,
   normalizeBaseUrl,
+  sanitizeProvider,
 } from '../services/providers';
 import { useT, useLang } from '../i18n/store';
 
@@ -68,7 +71,8 @@ function emptyDraft(presetId = 'google-gemini'): ProviderDraft {
   };
 }
 
-function draftFrom(provider: Provider): ProviderDraft {
+function draftFrom(rawProvider: Provider): ProviderDraft {
+  const provider = sanitizeProvider(rawProvider);
   const presetId = detectPresetId(provider);
   const preset = PROVIDER_PRESETS.find((p) => p.id === presetId) ?? PROVIDER_PRESETS[0];
   const isCustomPreset = preset.id === 'custom';
@@ -153,6 +157,49 @@ export const SettingsModal: React.FC<Props> = ({
     });
   };
 
+  const handleKeysChange = (keysText: string) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const firstKey = keysText
+        .split('\n')
+        .map((k) => cleanApiKey(k))
+        .find(Boolean);
+      const detectedPresetId = firstKey ? detectPresetFromKey(firstKey) : null;
+      if (!detectedPresetId) {
+        return { ...prev, keysText };
+      }
+      // Keep google-gemini-hybrid if user explicitly chose it for an AIza key
+      if (detectedPresetId === 'google-gemini' && prev.presetId === 'google-gemini-hybrid') {
+        return { ...prev, keysText };
+      }
+      // Keep openai-chat if user explicitly chose it for an sk-proj- key
+      if (detectedPresetId === 'openai-realtime' && prev.presetId === 'openai-chat') {
+        return { ...prev, keysText };
+      }
+      if (detectedPresetId !== prev.presetId && prev.presetId !== 'custom') {
+        const preset = PROVIDER_PRESETS.find((p) => p.id === detectedPresetId);
+        if (preset) {
+          const prevPreset = PROVIDER_PRESETS.find((p) => p.id === prev.presetId);
+          const shouldUpdateName = !prev.name.trim() || prev.name === prevPreset?.defaultName;
+          return {
+            ...prev,
+            keysText,
+            presetId: preset.id,
+            name: shouldUpdateName ? preset.defaultName : prev.name,
+            kind: preset.kind,
+            baseUrl: preset.baseUrl,
+            customBaseUrl: false,
+            model: preset.voiceModels[0]?.value ?? KIND_DEFAULTS[preset.kind].model,
+            customModel: false,
+            reportModel: preset.reportModels[0]?.value ?? KIND_DEFAULTS[preset.kind].reportModel,
+            customReportModel: false,
+          };
+        }
+      }
+      return { ...prev, keysText };
+    });
+  };
+
   const applySettings = (next: Partial<ProviderSettings>) => {
     onSettingsChange({ ...settings, ...next });
   };
@@ -161,13 +208,13 @@ export const SettingsModal: React.FC<Props> = ({
     if (!draft) return;
     const keys = draft.keysText
       .split('\n')
-      .map((k) => k.trim())
+      .map((k) => cleanApiKey(k))
       .filter(Boolean);
     const finalName = draft.name.trim() || 'Provider';
     if (keys.length === 0 || !draft.model.trim()) return;
 
     const existing = draft.id ? settings.providers.find((p) => p.id === draft.id) : undefined;
-    const provider: Provider = {
+    const rawProvider: Provider = {
       id: existing?.id ?? newProviderId(),
       name: finalName,
       kind: draft.kind,
@@ -177,6 +224,7 @@ export const SettingsModal: React.FC<Props> = ({
       keys,
       keyIndex: existing ? Math.min(existing.keyIndex, keys.length - 1) : 0,
     };
+    const provider = sanitizeProvider(rawProvider);
 
     const providers = existing
       ? settings.providers.map((p) => (p.id === provider.id ? provider : p))
@@ -184,8 +232,8 @@ export const SettingsModal: React.FC<Props> = ({
 
     const next: ProviderSettings = {
       providers,
-      voiceProviderId: settings.voiceProviderId,
-      reportProviderId: settings.reportProviderId,
+      voiceProviderId: isVoiceCapable(provider.kind) ? provider.id : settings.voiceProviderId,
+      reportProviderId: provider.id,
     };
     if (!next.voiceProviderId || !providers.some((p) => p.id === next.voiceProviderId && isVoiceCapable(p.kind))) {
       next.voiceProviderId = providers.find((p) => isVoiceCapable(p.kind))?.id ?? null;
@@ -350,41 +398,62 @@ export const SettingsModal: React.FC<Props> = ({
             )}
 
             <div className="space-y-2">
-              {settings.providers.map((p) => (
-                <div
-                  key={p.id}
-                  className={`flex items-center justify-between gap-2 bg-slate-900 border rounded-xl px-3 py-2 ${
-                    p.id === settings.voiceProviderId || p.id === settings.reportProviderId
-                      ? 'border-indigo-500/40'
-                      : 'border-slate-800'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-200 truncate">{p.name}</div>
-                    <div className="text-[10px] text-slate-500 truncate">
-                      {t(`kind.${p.kind}`)} •{' '}
-                      {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
-                      {p.model}
+              {settings.providers.map((p) => {
+                const isActiveVoice = p.id === settings.voiceProviderId;
+                return (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between gap-2 bg-slate-900 border rounded-xl px-3 py-2 ${
+                      isActiveVoice
+                        ? 'border-emerald-500/50 bg-emerald-950/15'
+                        : p.id === settings.reportProviderId
+                        ? 'border-indigo-500/40'
+                        : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-200 truncate">{p.name}</span>
+                        {isActiveVoice && (
+                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                            {lang === 'fa' ? '✓ فعال' : '✓ Active'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">
+                        {t(`kind.${p.kind}`)} •{' '}
+                        {p.keys.length > 1 ? t('settings.nKeys', { n: p.keys.length }) : t('settings.oneKey')} •{' '}
+                        {p.model}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!isActiveVoice && isVoiceCapable(p.kind) && (
+                        <button
+                          type="button"
+                          onClick={() => applySettings({ voiceProviderId: p.id, reportProviderId: p.id })}
+                          className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/40 transition"
+                        >
+                          {lang === 'fa' ? 'انتخاب' : 'Use'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setDraft(draftFrom(p))}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                        title={t('settings.edit')}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(p.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                        title={t('settings.delete')}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => setDraft(draftFrom(p))}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                      title={t('settings.edit')}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(p.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
-                      title={t('settings.delete')}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {draft && activePreset && (
@@ -426,7 +495,7 @@ export const SettingsModal: React.FC<Props> = ({
                   </label>
                   <textarea
                     value={draft.keysText}
-                    onChange={(e) => patchDraft({ keysText: e.target.value })}
+                    onChange={(e) => handleKeysChange(e.target.value)}
                     rows={2}
                     placeholder={`${activePreset.keyPlaceholder}\n${activePreset.keyPlaceholder}`}
                     className={selectClass + ' font-mono resize-none'}
@@ -538,10 +607,20 @@ export const SettingsModal: React.FC<Props> = ({
                       value={draft.kind}
                       onChange={(e) => {
                         const kind = e.target.value as ProviderKind;
+                        if (draft.presetId === 'google-gemini' && kind === 'openai-chat') {
+                          handleSelectPreset('google-gemini-hybrid');
+                          return;
+                        }
+                        if (draft.presetId === 'google-gemini-hybrid' && kind === 'gemini-live') {
+                          handleSelectPreset('google-gemini');
+                          return;
+                        }
                         const d = KIND_DEFAULTS[kind];
                         patchDraft({
                           kind,
                           baseUrl: draft.customBaseUrl ? draft.baseUrl : d.baseUrl,
+                          model: draft.customModel ? draft.model : d.model,
+                          reportModel: draft.customReportModel ? draft.reportModel : d.reportModel,
                         });
                       }}
                       className={selectClass}

@@ -7,6 +7,9 @@ import {
   isVoiceCapable,
   PROVIDER_PRESETS,
   detectPresetId,
+  cleanApiKey,
+  detectPresetFromKey,
+  sanitizeProvider,
 } from './providers';
 import { Provider } from '../types';
 
@@ -84,5 +87,40 @@ describe('provider helpers & presets', () => {
     expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://openrouter.ai/api/v1' })).toBe('openrouter');
     expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://api.groq.com/openai/v1' })).toBe('groq');
     expect(detectPresetId({ kind: 'openai-chat', baseUrl: 'https://my-proxy.local/v1' })).toBe('custom');
+  });
+
+  it('cleans invisible characters, quotes, and Bearer prefix from API keys', () => {
+    expect(cleanApiKey(' \u200B"Bearer AIzaSyTest123"\uFEFF ')).toBe('AIzaSyTest123');
+    expect(detectPresetFromKey('gsk_abc123')).toBe('groq');
+    expect(detectPresetFromKey('sk-or-v1-abc123')).toBe('openrouter');
+    expect(detectPresetFromKey('AIzaSyAbc123')).toBe('google-gemini');
+  });
+
+  it('auto-repairs misconfigured Groq, OpenRouter, and Gemini providers via sanitizeProvider', () => {
+    const misconfiguredGroq = sanitizeProvider({
+      id: 'g1',
+      name: 'Google Gemini',
+      kind: 'gemini-live',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      model: 'gemini-2.5-flash-native-audio-latest',
+      keys: ['gsk_testKey123'],
+      keyIndex: 0,
+    });
+    expect(misconfiguredGroq.kind).toBe('openai-chat');
+    expect(misconfiguredGroq.baseUrl).toBe('https://api.groq.com/openai/v1');
+    expect(misconfiguredGroq.model).toBe('llama-3.3-70b-versatile');
+
+    const retiredOpenRouter = sanitizeProvider({
+      id: 'or1',
+      name: 'OpenRouter',
+      kind: 'openai-chat',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
+      reportModel: 'deepseek/deepseek-chat-v3-0324:free',
+      keys: ['sk-or-v1-test123'],
+      keyIndex: 0,
+    });
+    expect(retiredOpenRouter.model).toBe('openrouter/free');
+    expect(retiredOpenRouter.reportModel).toBe('openrouter/free');
   });
 });
